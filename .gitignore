@@ -1,0 +1,23 @@
+# Dependencies and package-manager state
+node_modules/
+.npm/
+
+# Local repo-atlas runtime state and generated review artifacts
+.repo-atlas/
+.verification/
+.playwright-cli/
+atlas.next.json
+*.snapshot.json
+*.diff.json
+
+# Local editor and operating-system files
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+.DS_Store
+
+# Temporary test fixtures and reports
+tmp-*/
+tmp_*/
+coverage/

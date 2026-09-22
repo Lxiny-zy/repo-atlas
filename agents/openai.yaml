@@ -1,0 +1,4 @@
+interface:
+  display_name: "项目模块图谱"
+  short_description: "从真实仓库生成覆盖全面、可追溯源码的离线交互架构图谱"
+  default_prompt: "使用 $repo-atlas 分析当前项目的架构、每条关键业务链路、数据与运行边界；复杂项目请拆分多条链路和阶段，生成带覆盖矩阵、源码依据和可导航关系图的离线交互报告。"

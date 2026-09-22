@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>项目模块图谱</title>
+  <style>/* INLINE_STYLE */</style>
+  <script>/* INLINE_MERMAID */</script>
+  <script>/* INLINE_ICONS */</script>
+</head>
+<body>
+  <header class="app-header">
+    <button class="icon-button mobile-menu" id="open-nav" aria-label="打开目录" title="打开目录"><i data-lucide="menu"></i></button>
+    <div class="brand-symbol"><i data-lucide="network"></i></div>
+    <div class="brand"><h1 id="project-title">项目模块图谱</h1><span id="project-subtitle">REPOSITORY ATLAS</span></div>
+    <div class="header-meta"><span class="live-mark"></span><span>源码快照 <time id="baseline-date"></time></span><button class="snapshot-chip" id="update-button" type="button" hidden aria-label="查看快照更新"><i data-lucide="git-compare-arrows"></i><span id="update-label">有增量更新</span></button><span class="offline">离线可用</span></div>
+    <button class="icon-button" id="about-button" title="基线与证据范围" aria-label="基线与证据范围"><i data-lucide="info"></i></button>
+  </header>
+  <div class="page-shell">
+    <div class="nav-backdrop" id="nav-backdrop" hidden></div>
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-top"><span>模块图谱</span><button class="icon-button mobile-menu" id="close-nav" aria-label="关闭目录" title="关闭目录"><i data-lucide="x"></i></button></div>
+      <label class="search-box"><i data-lucide="search"></i><input id="module-search" type="search" placeholder="搜索全部分析内容" aria-label="搜索全部分析内容"></label>
+      <div id="search-results" class="search-results" hidden aria-live="polite"></div>
+      <nav id="view-nav" aria-label="关系图视图"></nav>
+      <div class="sidebar-foot"><div id="sidebar-stats"></div></div>
+    </aside>
+    <main id="main-content">
+      <section class="view-heading">
+        <div><div class="eyebrow" id="view-group"></div><h2 id="view-title"></h2><p id="view-subtitle"></p></div>
+        <div class="view-tags" id="view-tags"></div>
+      </section>
+      <section class="summary-strip" aria-label="分析摘要">
+        <div class="summary-metric"><span>职责模块</span><strong id="stat-modules">0</strong></div>
+        <div class="summary-metric"><span>关系视图</span><strong id="stat-diagrams">0</strong></div>
+        <button class="summary-metric summary-action" id="open-chains" type="button"><span>业务链路</span><strong id="stat-chains">0</strong><i data-lucide="arrow-up-right"></i></button>
+        <button class="summary-metric summary-action" id="open-findings" type="button"><span>关键发现</span><strong id="stat-findings">0</strong><i data-lucide="arrow-up-right"></i></button>
+        <button class="summary-metric summary-action" id="open-coverage" type="button"><span>覆盖维度</span><strong id="stat-coverage">0</strong><i data-lucide="arrow-up-right"></i></button>
+        <div class="summary-metric"><span>证据锚点</span><strong id="stat-evidence">0</strong></div>
+        <div class="summary-metric"><span>索引文件</span><strong id="stat-files">0</strong></div>
+      </section>
+      <section class="chain-section" id="chain-section" hidden>
+        <div class="section-heading"><h3>业务链路目录</h3><span id="chain-count"></span></div>
+        <p class="section-lead">每条链路按阶段绑定源码证据；点击链路可查看阶段覆盖、关联视图和待确认项。</p>
+        <div class="chain-grid" id="chain-grid"></div>
+      </section>
+      <section class="quality-section" id="quality-section" hidden>
+        <div class="quality-heading"><i data-lucide="shield-alert"></i><div><h3>交付完整度提醒</h3><p>以下提醒不代表代码质量问题，而是提示本次分析的链路或视图证据可能不足。</p></div></div>
+        <ul id="quality-list"></ul>
+      </section>
+      <section class="graph-section" id="graph-section" aria-label="关系图画布">
+        <div class="graph-toolbar">
+          <div class="legend" id="view-legend"></div>
+          <div class="graph-actions">
+            <button class="icon-button" id="zoom-out" title="缩小" aria-label="缩小"><i data-lucide="minus"></i></button>
+            <label class="zoom-value"><input id="zoom-input" type="number" min="5" max="400" step="10" value="100" aria-label="缩放百分比"><span>%</span></label>
+            <button class="icon-button" id="zoom-in" title="放大" aria-label="放大"><i data-lucide="plus"></i></button>
+            <button class="icon-button" id="fit-graph" title="适应画布" aria-label="适应画布"><i data-lucide="scan"></i></button>
+            <span class="toolbar-divider"></span>
+            <button class="icon-button" id="fullscreen" title="全屏" aria-label="全屏"><i data-lucide="maximize"></i></button>
+            <button class="icon-button" id="export-svg" title="导出 SVG" aria-label="导出 SVG"><i data-lucide="download"></i></button>
+            <button class="icon-button" id="show-source" title="Mermaid 源码" aria-label="Mermaid 源码"><i data-lucide="code-2"></i></button>
+            <button class="icon-button" id="show-view-evidence" title="本视图源码依据" aria-label="本视图源码依据"><i data-lucide="files"></i></button>
+          </div>
+        </div>
+        <div class="graph-viewport" id="graph-viewport" tabindex="0" aria-label="可拖动的关系图" title="拖动画布；Ctrl + 滚轮或双指缩放；点击模块节点查看依据">
+          <div class="graph-stage" id="graph-stage"></div>
+          <div id="graph-status" class="graph-status" role="status">正在绘制关系图</div>
+          <span class="canvas-stamp" id="canvas-stamp"></span>
+        </div>
+        <div class="graph-caption"><span id="diagram-kind"></span><span id="diagram-counter"></span></div>
+      </section>
+      <section class="facts-band" id="view-notes" aria-label="关键关系说明"></section>
+      <section class="module-section" id="module-section">
+        <div class="section-heading"><h3>关联模块</h3><span id="module-count"></span></div>
+        <div class="module-list" id="module-list"></div>
+        <div class="module-detail" id="module-detail" hidden></div>
+      </section>
+      <section class="alias-section" id="alias-section" hidden><div class="section-heading"><h3>图中对象与实际名称</h3><span>关联语义见图例和说明</span></div><div class="alias-list" id="alias-list"></div></section>
+      <section class="catalog-section" id="catalog-section" hidden>
+        <div class="section-heading"><h3>证据索引</h3><span id="catalog-count"></span></div>
+        <div class="catalog-controls">
+          <div class="segmented" role="tablist" aria-label="索引类型"><button role="tab" data-catalog="chains" aria-selected="true">业务链路</button><button role="tab" data-catalog="findings" aria-selected="false">发现项</button><button role="tab" data-catalog="coverage" aria-selected="false">覆盖矩阵</button><button role="tab" data-catalog="tables" aria-selected="false">数据对象</button><button role="tab" data-catalog="routes" aria-selected="false">接口 / 事件</button><button role="tab" data-catalog="files" aria-selected="false">源码文件</button><button role="tab" data-catalog="flags" aria-selected="false">配置项</button></div>
+          <label class="search-box"><i data-lucide="search"></i><input id="catalog-search" type="search" placeholder="筛选当前索引" aria-label="筛选当前索引"></label>
+        </div>
+        <div class="table-scroll"><table><thead id="catalog-head"></thead><tbody id="catalog-body"></tbody></table></div>
+      </section>
+      <footer class="report-footer"><span id="footer-boundary"></span><span id="footer-baseline"></span></footer>
+    </main>
+  </div>
+  <dialog id="detail-dialog" aria-labelledby="dialog-title">
+    <header class="dialog-heading"><h3 id="dialog-title"></h3><button class="icon-button" id="close-dialog" title="关闭" aria-label="关闭"><i data-lucide="x"></i></button></header>
+    <div id="dialog-body" class="dialog-body"></div>
+  </dialog>
+  <div class="toast" id="toast" role="status" hidden></div>
+  <script id="graph-data" type="application/json">DATA_JSON</script>
+  <script>/* INLINE_APP */</script>
+</body>
+</html>

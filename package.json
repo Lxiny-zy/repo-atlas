@@ -1,0 +1,25 @@
+{
+  "name": "repo-atlas",
+  "version": "0.2.0",
+  "description": "Evidence-backed, incrementally refreshed project and feature knowledge graphs",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Lxiny-zy/repo-atlas.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Lxiny-zy/repo-atlas/issues"
+  },
+  "homepage": "https://github.com/Lxiny-zy/repo-atlas#readme",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "snapshot": "node scripts/snapshot.mjs",
+    "delta": "node scripts/delta.mjs",
+    "refresh": "node scripts/refresh.mjs",
+    "verify": "node scripts/verify.mjs"
+  }
+}
