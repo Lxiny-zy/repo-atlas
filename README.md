@@ -95,11 +95,21 @@ node scripts/build.mjs path/to/atlas.next.json
 - 清单或公共基础设施变化；
 - 是否建议全量重分析以及具体原因。
 
+如果只需要把本次变更交给模型复核，不要重新加载整个仓库，可以生成增量上下文包：
+
+```text
+node scripts/context.mjs path/to/atlas.json --changed-only
+```
+
+`.repo-atlas/context.json` 只包含变更文件的 diff、受影响的链路与阶段、变更前后证据摘录和一跳上下游关系。快照中的轻量摘要索引提供变更前摘要，证据摘录继续遵守 `redact` 脱敏规则；使用 `--stale-only` 可以只处理失效证据。
+
 ### 复杂项目的多链路交付
 
 复杂项目不要把所有用户旅程、事件消费、批处理和补偿逻辑塞进一张总图。`atlas.json` 可以用 `chains` 描述多个业务链路，每条链路绑定自己的时序图、状态图、数据图或失败恢复图，并按阶段记录证据覆盖度。报告首页会显示业务链路目录，链路详情会显示阶段进度、触发与结果、关联视图和待确认项。
 
 阶段状态使用 `covered`、`partial`、`unknown` 或 `not_applicable`。已覆盖和部分覆盖阶段必须有源码证据；待确认阶段必须写出下一步核验位置。格式和完整示例见 [references/manifest-format.md](references/manifest-format.md)。
+
+阶段还可以标注 `kind`，推荐使用 `entry`、`authorization`、`validation`、`orchestration`、`read`、`write`、`side_effect`、`publication`、`consume`、`outcome` 和 `recovery`。报告会据此提示链路边界是否完整，并支持按覆盖状态筛选大量链路。
 
 需要同时保存候选当前快照时：
 
