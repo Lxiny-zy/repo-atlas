@@ -66,6 +66,12 @@ try {
     const chainText = await page.locator('#dialog-body').innerText();
     assert.ok(chainText.includes(chain.title) || chainText.includes(chain.summary), 'chain details are missing');
     assert.equal(await page.locator('.chain-stage').count(), chain.stages.length);
+    const stageWithEvidence = chain.stages.find(stage => stage.sources?.length);
+    if (stageWithEvidence) {
+      await page.locator(`[data-chain-stage-source="${chain.id}"][data-stage="${stageWithEvidence.id}"]`).first().click();
+      assert.ok((await page.locator('#dialog-body pre').innerText()).length > 0, 'stage evidence is missing');
+      await page.locator('#close-dialog').click();
+    }
     await page.locator(`[data-chain-source="${chain.id}"]`).first().click();
     assert.ok((await page.locator('#dialog-body pre').innerText()).length > 0, 'chain evidence is missing');
     await page.locator('#close-dialog').click();

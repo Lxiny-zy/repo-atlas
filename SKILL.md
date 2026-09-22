@@ -68,11 +68,14 @@ node <skill-dir>/scripts/snapshot.mjs <project-docs>/atlas.json
 ```text
 node <skill-dir>/scripts/delta.mjs <project-docs>/atlas.json
 node <skill-dir>/scripts/refresh.mjs <project-docs>/atlas.json --delta .repo-atlas/delta.json
+node <skill-dir>/scripts/context.mjs <project-docs>/atlas.json --changed-only
 ```
 
 增量结果包含新增、修改、删除、重命名、受影响模块、失效证据、复用/重算证据数量和是否建议全量重分析。`delta.json` 只保存差异摘要，不重复嵌入当前完整快照；需要同时落盘候选快照时可加 `--snapshot-output .repo-atlas/current-snapshot.json`。源文件被删除或证据锚点消失时，快照记录 `resolved: false` 和原因，不伪造旧摘录。
 
 刷新器输出 `atlas.next.json`，不覆盖分析者维护的基线清单；只有复核受影响源码后才接受候选清单并重新生成快照。清单本身发生变化、公共基础设施大范围变化或变更超过阈值时，候选项统一标记为待复核并建议全量重分析。模型上下文只带变更 hunk、受影响模块旧摘要、相关证据摘录和必要的一跳调用关系，未变化模块直接复用。
+
+`context.mjs` 生成 `.repo-atlas/context.json`，默认只携带 delta 中的变更文件、Git hunk、受影响链路/阶段、旧新证据摘录和一跳上下游关系；使用 `--stale-only` 只处理失效证据，使用 `--previous-manifest` 显式加入旧清单摘要。该文件是模型复核输入，不替代完整 `atlas.json` 或快照。
 
 默认影响规则：普通实现变更影响所在模块和直接证据；路由、数据模型、锁文件、部署或公共配置变化扩大到相关入口、数据关系和运行视图；至少 10 个基线文件时变更超过约 20%、变更达到 20 个文件，或命中公共基础设施时建议全量重分析。`.repo-atlas` 快照目录默认不进入文件索引，避免工具产物污染基线。快照和差异文件只保存在本地，不上传仓库。
 

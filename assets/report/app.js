@@ -24,6 +24,7 @@
   let fitMode = true;
   const catalogKinds = ['chains', 'findings', 'coverage', 'tables', 'routes', 'files', 'flags'].filter(kind => data[kind].length > 0);
   let catalogMode = catalogKinds[0] || 'tables';
+  let chainFilter = 'all';
   let toastTimer;
   let moved = false;
   let sourceForCopy = '';
@@ -377,7 +378,7 @@
     const views = chain.views.map(id => data.views.find(view => view.id === id)).filter(Boolean);
     return `<div class="detail-status">${statusBadge(chain.kind)}${freshnessBadge(chain)}<span class="chain-score">${progress.covered}/${progress.total} 阶段已确认</span></div>
       <p>${esc(chain.summary)}</p><div class="chain-route"><strong>触发</strong><span>${esc(chain.trigger)}</span><b>→</b><strong>结果</strong><span>${esc(chain.outcome)}</span></div>
-      <h4>阶段证据</h4><div class="chain-stage-list">${chain.stages.map(stage => `<div class="chain-stage"><div><strong>${esc(stage.label)}</strong>${statusBadge(stage.status)}</div><p>${esc(stage.summary)}</p>${stage.nextCheck ? `<small>待确认：${esc(stage.nextCheck)}</small>` : ''}</div>`).join('')}</div>
+      <h4>阶段证据</h4><div class="chain-stage-list">${chain.stages.map(stage => `<div class="chain-stage"><div><strong>${esc(stage.label)}</strong><span class="chain-stage-kind">${esc(stage.kind || 'custom')}</span>${statusBadge(stage.status)}</div><p>${esc(stage.summary)}</p>${stage.nextCheck ? `<small>待确认：${esc(stage.nextCheck)}</small>` : ''}${stage.sources?.length ? `<div class="chain-stage-sources">${stage.sources.map((source, index) => `<button class="evidence-link" data-chain-stage-source="${chain.id}" data-stage="${stage.id}" data-index="${index}">${icon('file-code-2')}<span>${esc(source.path)}<span class="file-meta">L${source.line}</span></span></button>`).join('')}</div>` : ''}</div>`).join('')}</div>
       ${views.length ? `<h4>关联关系图</h4><div class="related-links">${views.map(view => `<button class="text-link" data-chain-view="${view.id}">${icon(view.icon)}${esc(view.title)}</button>`).join('')}</div>` : ''}
       <h4>链路源码依据 · ${chain.sources.length} 处</h4>${chain.sources.map((source, index) => `<button class="evidence-link" data-chain-source="${chain.id}" data-index="${index}">${icon('file-code-2')}<span>${esc(source.path)}<span class="file-meta">L${source.line}</span></span></button>`).join('')}`;
   }
@@ -390,11 +391,18 @@
   function renderChains() {
     const section = $('chain-section');
     section.hidden = !data.chains.length;
-    $('chain-count').textContent = `${data.chains.length} 条链路`;
-    $('chain-grid').innerHTML = data.chains.map(chain => {
+    const chains = data.chains.filter(chain => {
+      const progress = chainProgress(chain);
+      if (chainFilter === 'review') return chain.reviewRequired || chain.freshness === 'stale';
+      if (chainFilter === 'incomplete') return progress.covered < progress.total;
+      if (chainFilter === 'covered') return progress.covered === progress.total;
+      return true;
+    });
+    $('chain-count').textContent = `${chains.length} / ${data.chains.length} 条链路`;
+    $('chain-grid').innerHTML = chains.length ? chains.map(chain => {
       const progress = chainProgress(chain);
       return `<article class="chain-card" data-chain="${chain.id}"><div class="chain-card-head"><div><span class="eyebrow">${esc(chain.kind)}</span><h4>${esc(chain.title)}</h4></div>${freshnessBadge(chain)}</div><p>${esc(chain.summary)}</p><div class="chain-route"><span>${esc(chain.trigger)}</span><b>→</b><span>${esc(chain.outcome)}</span></div><div class="chain-progress"><span style="width:${progress.percent}%"></span></div><div class="chain-meta"><span>${progress.covered}/${progress.total} 阶段已确认</span><span>${chain.views.length} 张关联图</span><button class="text-link" data-chain="${chain.id}">查看链路</button></div></article>`;
-    }).join('');
+    }).join('') : '<div class="empty-state">当前筛选条件下没有业务链路。</div>';
     icons();
   }
 
@@ -538,6 +546,13 @@
     if (chain) { closeNav(); showChain(chain.dataset.chain); return; }
     const chainView = event.target.closest('[data-chain-view]');
     if (chainView) { dialog.close(); navigate(chainView.dataset.chainView); return; }
+    const chainStageSource = event.target.closest('[data-chain-stage-source]');
+    if (chainStageSource) {
+      const chain = data.chains.find(item => item.id === chainStageSource.dataset.chainStageSource);
+      const stage = chain?.stages.find(item => item.id === chainStageSource.dataset.stage);
+      if (stage) showEvidence(stage.sources[Number(chainStageSource.dataset.index)]);
+      return;
+    }
     const chainSource = event.target.closest('[data-chain-source]');
     if (chainSource) { showEvidence(data.chains.find(item => item.id === chainSource.dataset.chainSource).sources[Number(chainSource.dataset.index)]); return; }
     const searchView = event.target.closest('[data-search-view]');
@@ -574,6 +589,7 @@
   });
 
   $('catalog-search').addEventListener('input', renderCatalog);
+  $('chain-filter').addEventListener('change', event => { chainFilter = event.target.value; renderChains(); });
   function showEvidenceList(row, kind) {
     const index = data[kind].indexOf(row);
     showDialog('源码依据 · ' + (row.name || row.prefix), `<p>${esc(row.description || '')}</p>${row.sources.map((source, sourceIndex) => `<button class="evidence-link" data-index-kind="${kind}" data-row="${index}" data-index-source="${sourceIndex}">${icon('file-code-2')}<span>${esc(source.path)}<span class="file-meta">L${source.line}</span></span></button>`).join('')}`);

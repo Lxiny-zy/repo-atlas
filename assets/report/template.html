@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="light">
+  <link rel="icon" href="data:,">
   <title>项目模块图谱</title>
   <style>/* INLINE_STYLE */</style>
   <script>/* INLINE_MERMAID */</script>
@@ -41,7 +42,7 @@
         <div class="summary-metric"><span>索引文件</span><strong id="stat-files">0</strong></div>
       </section>
       <section class="chain-section" id="chain-section" hidden>
-        <div class="section-heading"><h3>业务链路目录</h3><span id="chain-count"></span></div>
+        <div class="section-heading"><h3>业务链路目录</h3><div class="chain-heading-tools"><span id="chain-count"></span><label class="compact-select"><span class="sr-only">筛选业务链路</span><select id="chain-filter" aria-label="筛选业务链路"><option value="all">全部链路</option><option value="review">待复核</option><option value="incomplete">覆盖不完整</option><option value="covered">已覆盖</option></select></label></div></div>
         <p class="section-lead">每条链路按阶段绑定源码证据；点击链路可查看阶段覆盖、关联视图和待确认项。</p>
         <div class="chain-grid" id="chain-grid"></div>
       </section>

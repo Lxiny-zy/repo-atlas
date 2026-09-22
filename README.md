@@ -124,7 +124,9 @@ scripts/build.mjs                清单校验与 HTML 生成
 scripts/snapshot.mjs             首次快照
 scripts/delta.mjs                增量差异
 scripts/refresh.mjs              候选清单刷新
+scripts/context.mjs              增量模型上下文打包
 scripts/verify.mjs               浏览器交互验证
+scripts/test.mjs                 本地回归夹具
 scripts/snapshot-lib.mjs         快照与证据索引实现
 references/                      清单契约、分析指南和提示词
 assets/report/                   离线报告模板、样式、脚本和固定版本资源
@@ -229,11 +231,21 @@ The incremental path computes file metadata, SHA-256 hashes, Git state, and the 
 
 `delta.json` includes added, modified, deleted, and confidently detected renamed files; impacted entities; reusable, recomputed, and stale evidence counts; manifest or infrastructure changes; and full-reanalysis reasons.
 
+To prepare a small model-ready handoff instead of reloading the repository, generate an incremental context bundle:
+
+```text
+node scripts/context.mjs path/to/atlas.json --changed-only
+```
+
+The resulting `.repo-atlas/context.json` contains only changed-file hunks, affected entities and chain stages, previous/current evidence excerpts, and one-hop module relationships. Use `--stale-only` to focus on invalid evidence, or `--previous-manifest atlas.previous.json` when an older manifest is available so prior summaries can be compared explicitly.
+
 ### Multi-chain delivery for complex repositories
 
 Do not compress user journeys, event consumers, batch jobs, and compensation flows into one diagram. Use `chains` in `atlas.json` to register each important flow, connect it to its own sequence, state, data, consistency, recovery, or deployment views, and record evidence coverage for each stage. The report homepage shows a chain directory; opening a chain shows its stage progress, trigger and outcome, related views, and unresolved checks.
 
 Stage status is one of `covered`, `partial`, `unknown`, or `not_applicable`. Covered and partial stages require source evidence; unknown stages require a concrete `nextCheck`. See [references/manifest-format.md](references/manifest-format.md) for the schema and full example.
+
+Stage `kind` should use a stable semantic vocabulary such as `entry`, `authorization`, `validation`, `orchestration`, `read`, `write`, `side_effect`, `publication`, `consume`, `outcome`, or `recovery`. The report uses these labels to surface inconsistent chain boundaries and to make large chain directories easier to filter.
 
 To persist a candidate current snapshot as well:
 
@@ -258,7 +270,9 @@ scripts/build.mjs                Manifest validation and HTML generation
 scripts/snapshot.mjs             Initial snapshot
 scripts/delta.mjs                Incremental diff
 scripts/refresh.mjs              Candidate manifest refresh
+scripts/context.mjs              Model-ready incremental context bundle
 scripts/verify.mjs               Browser interaction checks
+scripts/test.mjs                 Local regression fixture
 scripts/snapshot-lib.mjs         Snapshot and evidence index implementation
 references/                      Manifest contract, analysis guide, and prompts
 assets/report/                   Offline template, styles, scripts, and pinned assets

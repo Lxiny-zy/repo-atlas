@@ -105,11 +105,23 @@ const moduleIds = new Set(modules.map(module => module.id));
 for (const module of modules) for (const id of module.links) if (!moduleIds.has(id)) throw new Error(`Unknown module link: ${module.id} -> ${id}`);
 
 const flowClasses = await readFile(resolve(here, '../assets/report/flow-classes.mmd'), 'utf8');
+const inferViewKind = diagram => {
+  const value = diagram.trimStart();
+  if (value.startsWith('sequenceDiagram')) return 'sequence';
+  if (value.startsWith('stateDiagram')) return 'state';
+  if (value.startsWith('erDiagram')) return 'data';
+  if (value.startsWith('mindmap')) return 'mindmap';
+  if (/^\s*(flowchart|graph)\s/.test(value)) return 'flow';
+  return 'custom';
+};
+const viewKinds = new Set(['overview', 'flow', 'sequence', 'state', 'data', 'deployment', 'recovery', 'dependency', 'mindmap', 'custom']);
 const views = await Promise.all(requireList(manifest.views, 'views').map(async view => {
   uniqueId(view.id, 'view');
   if (view.id === 'catalog') throw new Error('catalog is reserved for the generated index');
   requireText(view.title, 'view.title');
   requireText(view.diagram, 'view.diagram');
+  const kind = view.kind || inferViewKind(view.diagram);
+  if (!viewKinds.has(kind)) throw new Error(`Invalid view.kind in ${view.id}: ${kind}`);
   if (view.mobileDiagram != null) requireText(view.mobileDiagram, `view.mobileDiagram in ${view.id}`);
   for (const id of requireList(view.modules, 'view.modules')) if (!moduleIds.has(id)) throw new Error(`Unknown module in view ${view.id}: ${id}`);
   const notes = requireList(view.notes || [], 'view.notes');
@@ -123,7 +135,7 @@ const views = await Promise.all(requireList(manifest.views, 'views').map(async v
   const theme = diagram => /^\s*(flowchart|graph)\s/.test(diagram) && view.useDefaultClasses !== false ? diagram + '\n' + flowClasses : diagram;
   return {
     id: view.id, title: view.title, subtitle: view.subtitle || '', icon: view.icon || 'network', group: view.group || '项目图谱',
-    tags, diagram: theme(view.diagram), mobileDiagram: view.mobileDiagram ? theme(view.mobileDiagram) : undefined,
+    kind, tags, diagram: theme(view.diagram), mobileDiagram: view.mobileDiagram ? theme(view.mobileDiagram) : undefined,
     modules: view.modules, notes, aliases: Object.keys(aliases).length ? aliases : undefined, legend: legend.length ? legend : undefined, ...freshnessFields(view),
     sources: await Promise.all(requireList(view.sources || [], `view.sources in ${view.id}`).map(evidence))
   };
@@ -131,6 +143,7 @@ const views = await Promise.all(requireList(manifest.views, 'views').map(async v
 if (!views.length) throw new Error('At least one diagram is required');
 const viewIds = new Set(views.map(view => view.id));
 const chainStatuses = new Set(['covered', 'partial', 'unknown', 'not_applicable']);
+const chainStageKinds = new Set(['entry', 'authorization', 'validation', 'orchestration', 'read', 'write', 'side_effect', 'publication', 'consume', 'outcome', 'recovery', 'custom']);
 const chains = await Promise.all(requireList(manifest.chains || [], 'chains').map(async chain => {
   uniqueId(chain.id, 'chain');
   requireText(chain.title, 'chain.title');
@@ -151,13 +164,14 @@ const chains = await Promise.all(requireList(manifest.chains || [], 'chains').ma
     stageIds.add(stage.id);
     requireText(stage.label, `chain stage.label in ${chain.id}`);
     requireText(stage.summary, `chain stage.summary in ${chain.id}`);
+    if (stage.kind != null) requireText(stage.kind, `chain stage.kind in ${chain.id}/${stage.id}`);
     if (!chainStatuses.has(stage.status)) throw new Error(`Invalid chain stage status in ${chain.id}/${stage.id}: ${stage.status}`);
     const stageModules = requireList(stage.modules || [], `chain stage.modules in ${chain.id}/${stage.id}`);
     for (const id of stageModules) if (!moduleIds.has(id)) throw new Error(`Unknown module in chain stage ${chain.id}/${stage.id}: ${id}`);
     const sources = await Promise.all(requireList(stage.sources || [], `chain stage.sources in ${chain.id}/${stage.id}`).map(evidence));
     if (['covered', 'partial'].includes(stage.status) && !sources.length) throw new Error(`Chain stage ${chain.id}/${stage.id} requires evidence`);
     if (stage.status === 'unknown' && !stage.nextCheck) throw new Error(`Unknown chain stage ${chain.id}/${stage.id} must provide nextCheck`);
-    return { id: stage.id, label: stage.label, status: stage.status, summary: stage.summary, nextCheck: stage.nextCheck || '', modules: stageModules, sources };
+    return { id: stage.id, kind: stage.kind || 'custom', label: stage.label, status: stage.status, summary: stage.summary, nextCheck: stage.nextCheck || '', modules: stageModules, sources };
   }));
   const sources = await Promise.all(requireList(chain.sources, `chain.sources in ${chain.id}`).map(evidence));
   if (!sources.length) throw new Error(`No evidence for chain ${chain.id}`);
@@ -260,6 +274,16 @@ const qualityWarnings = [];
 if (modules.length >= 8 && !chains.length) qualityWarnings.push('模块数量较多但没有登记业务链路；复杂项目容易退化为一张总览图。');
 if (modules.length >= 8 && diagramViews.length < 3) qualityWarnings.push('复杂范围只有少量关系图；建议补充专属时序、状态、数据或失败恢复视图。');
 for (const chain of chains) if (!chain.views.length) qualityWarnings.push(`链路“${chain.title}”没有关联关系图，阶段证据无法通过视图复核。`);
+for (const chain of chains) {
+  if (chain.stages.some(stage => stage.kind === 'custom')) qualityWarnings.push(`链路“${chain.title}”存在未分类阶段；建议标注 entry、validation、write、side_effect、outcome 或 recovery 以便横向比较。`);
+  if (chain.stages.some(stage => !chainStageKinds.has(stage.kind))) qualityWarnings.push(`链路“${chain.title}”使用了非标准阶段类型；建议迁移到稳定语义词表，保留自定义类型时请在清单中说明。`);
+  if (chain.stages[0]?.kind && !['entry', 'authorization', 'validation'].includes(chain.stages[0].kind)) qualityWarnings.push(`链路“${chain.title}”的首阶段不是入口或校验阶段：${chain.stages[0].kind}。`);
+  if (chain.stages.at(-1)?.kind && !['outcome', 'recovery', 'custom'].includes(chain.stages.at(-1).kind)) qualityWarnings.push(`链路“${chain.title}”的末阶段未标记为 outcome 或 recovery：${chain.stages.at(-1).kind}。`);
+  const linkedViews = chain.views.map(id => views.find(view => view.id === id)).filter(Boolean);
+  if (linkedViews.length && !linkedViews.some(view => view.kind === 'sequence')) qualityWarnings.push(`链路“${chain.title}”缺少时序图，入口到结果的调用顺序无法单独复核。`);
+  const linkedModules = new Set(linkedViews.flatMap(view => view.modules));
+  for (const moduleId of chain.modules) if (linkedViews.length && !linkedModules.has(moduleId)) qualityWarnings.push(`链路“${chain.title}”的模块未全部出现在关联视图中：${moduleId}`);
+}
 const quality = { level: qualityWarnings.length ? 'review' : 'ready', warnings: qualityWarnings };
 const evidenceCount = [
   ...modules, ...views, ...chains, ...chains.flatMap(chain => chain.stages), ...tables, ...routes, ...flags, ...findings, ...coverage

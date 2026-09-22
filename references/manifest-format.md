@@ -147,8 +147,10 @@
 
 - `chains` 可以为空，简单项目不必强行创建链路；复杂项目每条关键业务链都应有一项。
 - `stages` 至少三项，推荐按“入口与权限、校验与编排、数据读写、外部副作用、结果与下游、失败恢复”拆分；状态只能使用 `covered`、`partial`、`unknown`、`not_applicable`。
+- 阶段可用 `kind` 标注稳定语义：`entry`、`authorization`、`validation`、`orchestration`、`read`、`write`、`side_effect`、`publication`、`consume`、`outcome`、`recovery` 或 `custom`。首阶段通常应为 `entry` / `authorization` / `validation`，末阶段通常应为 `outcome` / `recovery`；生成器会对不一致情况给出质量提醒。
 - `covered` 和 `partial` 阶段必须有证据；`unknown` 必须填写 `nextCheck`，不能用空证据伪装成已核对。
 - `views` 把链路绑定到多张关系图。复杂链路至少应有一张时序图，并按需要补充状态、数据、一致性、失败恢复或部署视图。
+- 视图可选填 `kind`（`overview`、`flow`、`sequence`、`state`、`data`、`deployment`、`recovery`、`dependency`、`mindmap`、`custom`）；省略时根据 Mermaid 首行推断。链路关联视图中的模块应覆盖 `chain.modules`，否则报告会标记为待复核。
 - 报告会展示链路阶段进度、触发与结果、关联图和证据索引；阶段进度是证据覆盖度，不是系统质量评分。
 
 ## 发现项与覆盖矩阵

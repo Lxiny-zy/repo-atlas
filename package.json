@@ -19,7 +19,9 @@
     "build": "node scripts/build.mjs",
     "snapshot": "node scripts/snapshot.mjs",
     "delta": "node scripts/delta.mjs",
+    "context": "node scripts/context.mjs",
     "refresh": "node scripts/refresh.mjs",
-    "verify": "node scripts/verify.mjs"
+    "verify": "node scripts/verify.mjs",
+    "test": "node scripts/test.mjs"
   }
 }

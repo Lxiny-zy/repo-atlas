@@ -1,0 +1,95 @@
+{
+  "workspace": ".",
+  "output": "report.html",
+  "project": {
+    "title": "Multi-chain fixture",
+    "scope": "Order creation and audit recording.",
+    "boundary": "No external services are executed."
+  },
+  "fileGroups": [
+    { "name": "Source", "paths": ["src"], "extensions": [".js"] }
+  ],
+  "modules": [
+    {
+      "id": "api",
+      "name": "Order API",
+      "summary": "Accepts order requests.",
+      "facts": ["The API invokes order validation."],
+      "links": ["worker"],
+      "sources": [{ "path": "src/order.js", "match": "export function createOrder", "length": 3 }]
+    },
+    {
+      "id": "worker",
+      "name": "Order worker",
+      "summary": "Validates and publishes orders.",
+      "facts": ["Validation runs before publication."],
+      "links": ["audit"],
+      "sources": [{ "path": "src/order.js", "match": "function validateOrder", "length": 4 }]
+    },
+    {
+      "id": "audit",
+      "name": "Audit log",
+      "summary": "Records order outcomes.",
+      "facts": ["Audit records include the order id."],
+      "links": [],
+      "sources": [{ "path": "src/audit.js", "match": "export function recordAudit", "length": 3 }]
+    }
+  ],
+  "views": [
+    {
+      "id": "overview",
+      "title": "Module overview",
+      "kind": "flow",
+      "diagram": "flowchart LR\napi --> worker --> audit",
+      "modules": ["api", "worker", "audit"],
+      "sources": []
+    },
+    {
+      "id": "create_sequence",
+      "title": "Create order sequence",
+      "kind": "sequence",
+      "diagram": "sequenceDiagram\nparticipant API\nparticipant Worker\nAPI->>Worker: validate and publish",
+      "modules": ["api", "worker"],
+      "sources": [{ "path": "src/order.js", "match": "return publishOrder", "length": 2 }]
+    }
+  ],
+  "chains": [
+    {
+      "id": "create_order",
+      "title": "Create order",
+      "kind": "user_flow",
+      "summary": "Validates and publishes an order.",
+      "trigger": "POST /orders",
+      "outcome": "Published order",
+      "modules": ["api", "worker"],
+      "views": ["overview", "create_sequence"],
+      "stages": [
+        { "id": "entry", "kind": "entry", "label": "Entry", "status": "covered", "summary": "API receives the request.", "modules": ["api"], "sources": [{ "path": "src/order.js", "match": "export function createOrder", "length": 2 }] },
+        { "id": "validation", "kind": "validation", "label": "Validation", "status": "covered", "summary": "Input is validated.", "modules": ["worker"], "sources": [{ "path": "src/order.js", "match": "function validateOrder", "length": 3 }] },
+        { "id": "publish", "kind": "side_effect", "label": "Publish", "status": "covered", "summary": "The order is published.", "modules": ["worker"], "sources": [{ "path": "src/order.js", "match": "function publishOrder", "length": 3 }] }
+      ],
+      "sources": [{ "path": "src/order.js", "match": "export function createOrder", "length": 4 }]
+    },
+    {
+      "id": "audit_order",
+      "title": "Record audit",
+      "kind": "event_flow",
+      "summary": "Records the published order outcome.",
+      "trigger": "Published order event",
+      "outcome": "Audit record",
+      "modules": ["audit"],
+      "views": ["overview"],
+      "stages": [
+        { "id": "consume", "kind": "entry", "label": "Consume", "status": "covered", "summary": "Audit receives an order.", "modules": ["audit"], "sources": [{ "path": "src/audit.js", "match": "export function recordAudit", "length": 2 }] },
+        { "id": "record", "kind": "write", "label": "Record", "status": "covered", "summary": "Audit data is written.", "modules": ["audit"], "sources": [{ "path": "src/audit.js", "match": "return { orderId", "length": 2 }] },
+        { "id": "result", "kind": "outcome", "label": "Result", "status": "unknown", "summary": "Downstream retention is outside scope.", "nextCheck": "Check the audit storage consumer.", "modules": ["audit"], "sources": [] }
+      ],
+      "sources": [{ "path": "src/audit.js", "match": "export function recordAudit", "length": 3 }]
+    }
+  ],
+  "findings": [],
+  "coverage": [],
+  "tables": [],
+  "routes": [],
+  "flags": []
+}
