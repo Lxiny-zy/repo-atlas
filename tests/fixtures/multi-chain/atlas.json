@@ -87,7 +87,17 @@
       "sources": [{ "path": "src/audit.js", "match": "export function recordAudit", "length": 3 }]
     }
   ],
-  "findings": [],
+  "findings": [
+    {
+      "id": "token_anchor",
+      "title": "Internal token anchor",
+      "kind": "fact",
+      "status": "confirmed",
+      "summary": "Fixture-only evidence verifies redaction.",
+      "modules": ["api"],
+      "sources": [{ "path": "src/order.js", "match": "const internalToken", "length": 1, "redact": ["fixture-secret"] }]
+    }
+  ],
   "coverage": [],
   "tables": [],
   "routes": [],

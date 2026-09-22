@@ -3,6 +3,8 @@ export function createOrder(input) {
   return publishOrder(order);
 }
 
+const internalToken = "fixture-secret";
+
 function validateOrder(input) {
   return { ...input, valid: true };
 }

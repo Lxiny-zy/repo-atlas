@@ -105,7 +105,9 @@ const excerpt = (text, source) => {
   const matches = lines.flatMap((line, index) => line.includes(source.match) ? [index] : []);
   const start = matches[(source.occurrence ?? 1) - 1];
   if (start == null) return null;
-  return { line: start + 1, text: lines.slice(start, start + (source.length ?? 8)).join('\n') };
+  let value = lines.slice(start, start + (source.length ?? 8)).join('\n');
+  for (const secret of source.redact || []) value = value.split(secret).join('[REDACTED]');
+  return { line: start + 1, text: value };
 };
 
 const changes = (delta.changes || []).filter(change => !changedOnly || changedPaths.has(change.path) || changedPaths.has(change.renamedFrom));
@@ -186,7 +188,7 @@ const selectedEntities = [...selectedKeys].map(key => {
     id: item.id,
     title: row.title || row.name || row.label || row.area || row.prefix || item.id,
     summary: row.summary || row.description || '',
-    previousSummary: previousRow?.summary || previousRow?.description || null,
+    previousSummary: baseline.summaryIndex?.[key]?.summary || previousRow?.summary || previousRow?.description || null,
     status: row.status || null,
     modules: row.modules || [],
     stale: staleEntities.has(key),

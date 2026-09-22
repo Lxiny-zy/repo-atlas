@@ -237,7 +237,7 @@ To prepare a small model-ready handoff instead of reloading the repository, gene
 node scripts/context.mjs path/to/atlas.json --changed-only
 ```
 
-The resulting `.repo-atlas/context.json` contains only changed-file hunks, affected entities and chain stages, previous/current evidence excerpts, and one-hop module relationships. Use `--stale-only` to focus on invalid evidence, or `--previous-manifest atlas.previous.json` when an older manifest is available so prior summaries can be compared explicitly.
+The resulting `.repo-atlas/context.json` contains only changed-file hunks, affected entities and chain stages, previous/current evidence excerpts, and one-hop module relationships. Snapshot files retain a compact summary index, so prior summaries are available without storing a second full manifest. Evidence excerpts honor each source's `redact` list. Use `--stale-only` to focus on invalid evidence, or `--previous-manifest atlas.previous.json` to override the stored summaries explicitly.
 
 ### Multi-chain delivery for complex repositories
 

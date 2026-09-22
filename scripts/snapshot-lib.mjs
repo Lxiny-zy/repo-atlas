@@ -93,6 +93,32 @@ function sourceRows(manifest) {
 
 export function collectSourceRows(manifest) { return sourceRows(manifest); }
 
+export function buildSummaryIndex(manifest) {
+  const summaries = {};
+  const add = (type, id, row) => {
+    summaries[`${type}:${id}`] = {
+      title: row.title || row.name || row.label || row.area || row.prefix || id,
+      summary: row.summary || row.description || '',
+      status: row.status || null,
+      modules: row.modules || []
+    };
+  };
+  for (const row of manifest.modules || []) add('module', row.id, row);
+  for (const row of manifest.views || []) add('view', row.id, row);
+  for (const row of manifest.chains || []) {
+    add('chain', row.id, row);
+    for (const stage of row.stages || []) add('chain', `${row.id}/${stage.id}`, stage);
+  }
+  for (const [type, rows, key] of [
+    ['table', manifest.tables, 'name'],
+    ['route', manifest.routes, 'prefix'],
+    ['flag', manifest.flags, 'name'],
+    ['finding', manifest.findings, 'id'],
+    ['coverage', manifest.coverage, 'id']
+  ]) for (const row of rows || []) add(type, row[key], row);
+  return summaries;
+}
+
 async function walkFiles(workspace, group, files, seen, allowMissingSources = false) {
   const extensions = new Set((group.extensions || []).map(value => value.toLowerCase()));
   const excludes = new Set(['.git', '.repo-atlas', 'node_modules', '.venv', '__pycache__', ...(group.exclude || [])]);
@@ -251,6 +277,7 @@ export async function createSnapshot(bundle, previous = null, { allowMissingSour
     files,
     evidence: evidence.evidence,
     impactIndex: evidence.impactIndex,
+    summaryIndex: buildSummaryIndex(bundle.manifest),
     counts: { files: Object.keys(files).length, evidence: Object.keys(evidence.evidence).length }
   };
 }

@@ -64,7 +64,7 @@
 - 所有 source、repository、fileGroup 路径相对 workspace，统一使用 `/`。源码不得通过 `../` 或符号链接逃出工作区。多仓项目以共同上级目录为 workspace。
 - 增量更新使用技能目录下的本地快照工具：`node scripts/snapshot.mjs atlas.json` 生成 `.repo-atlas/snapshot.json`，`node scripts/delta.mjs atlas.json` 生成 `.repo-atlas/delta.json`，`node scripts/refresh.mjs atlas.json --delta .repo-atlas/delta.json` 生成待审核的 `atlas.next.json`。这些步骤只读取本地文件和 Git 元数据，不把未变化源码重新送入模型。
 - `delta.json` 不嵌入完整当前快照；如需在同一轮保存新快照，显式传 `--snapshot-output`。`summary.reusedEvidence` 只统计文件哈希、摘录哈希和证据定义均未变的条目，`recomputedEvidence` 统计仍可解析但需要重新核对的条目，`staleEvidence` 统计已失效或缺失的条目。
-- 快照同时保存原始 `manifestSha256` 与排除候选运行期字段后的 `analysisManifestSha256`；后者用于避免仅刷新 UI 状态时重复触发全量复核。
+- 快照同时保存原始 `manifestSha256` 与排除候选运行期字段后的 `analysisManifestSha256`；后者用于避免仅刷新 UI 状态时重复触发全量复核。快照还保留不含源码的 `summaryIndex`，供 `context.mjs` 提供变更前摘要。
 - 重命名只在删除与新增文件的 SHA-256 相同且一一配对时报告为 `renamed`；重命名同时修改内容时保留为 `deleted` + `added`，不猜测关系。`--snapshot-output` 不能覆盖 `--from` 指定的基线。
 - 删除源文件不会让增量计算中断：对应证据会保留路径、`resolved: false`、空哈希和 `staleReason`。首次正式报告生成仍由 `build.mjs` 严格拒绝缺失或歧义锚点。
 - `manifestChanged` 表示分析清单本身发生变化（候选 `update` 字段和运行期 freshness 标记会被排除在比较之外）；它会触发全量复核建议，避免只改结论或证据定义时静默沿用旧判断。

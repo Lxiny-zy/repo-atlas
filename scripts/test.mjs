@@ -34,6 +34,8 @@ try {
   assert.ok(context.entities.some(entity => entity.key === 'chain:create_order'));
   assert.ok(context.evidence.some(item => item.current && item.previous));
   assert.ok(context.relationships.impactedModules.some(module => module.id === 'api'));
+  assert.ok(context.evidence.some(item => item.current?.text.includes('[REDACTED]') && !item.current.text.includes('fixture-secret')));
+  assert.ok(context.entities.some(entity => entity.previousSummary));
   assert.ok(staleContext.entities.length > 0);
   assert.ok(staleContext.entities.every(entity => entity.stale));
   console.log(JSON.stringify({ ok: true, changedFiles: context.changedFiles.length, entities: context.entities.length, evidence: context.evidence.length }, null, 2));
