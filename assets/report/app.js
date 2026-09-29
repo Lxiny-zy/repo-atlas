@@ -11,6 +11,7 @@
   const icons = () => window.lucide.createIcons();
   const byId = id => data.modules.find(module => module.id === id);
   const fileUrl = path => data.sourceBase.split('/').map(encodeURIComponent).join('/') + path.split('/').map(encodeURIComponent).join('/');
+  const sourceLocation = source => source.line == null ? '未解析' : 'L' + source.line;
   const basename = path => path.split('/').pop();
   const stage = $('graph-stage');
   const viewport = $('graph-viewport');
@@ -25,16 +26,56 @@
   const catalogKinds = ['chains', 'findings', 'coverage', 'tables', 'routes', 'files', 'flags'].filter(kind => data[kind].length > 0);
   let catalogMode = catalogKinds[0] || 'tables';
   let chainFilter = 'all';
+  let catalogPage = 0;
+  let chainPage = 0;
+  const catalogPageSize = 50;
+  const chainPageSize = 12;
+  const searchIndex = new WeakMap();
+  for (const kind of ['views', 'modules', ...catalogKinds]) {
+    for (const row of data[kind]) searchIndex.set(row, JSON.stringify(row).toLowerCase());
+  }
+  const matchesSearch = (row, query) => {
+    if (!searchIndex.has(row)) searchIndex.set(row, JSON.stringify(row).toLowerCase());
+    return searchIndex.get(row).includes(query);
+  };
+  function renderPager(id, page, total, size, target) {
+    const pages = Math.max(1, Math.ceil(total / size));
+    $(id).hidden = pages <= 1;
+    $(id).innerHTML = `<button type="button" data-page-target="${target}" data-page="${page - 1}" ${page === 0 ? 'disabled' : ''}>上一页</button><span role="status" aria-live="polite">第 ${page + 1} / ${pages} 页 · ${Math.min(total, page * size + 1)}–${Math.min(total, (page + 1) * size)} / ${total} 项</span><button type="button" data-page-target="${target}" data-page="${page + 1}" ${page + 1 >= pages ? 'disabled' : ''}>下一页</button>`;
+  }
   let toastTimer;
   let moved = false;
   let sourceForCopy = '';
   let renderedDiagram = '';
   const cache = new Map();
+  const dialogHistory = [];
+  const overviewId = (data.views.find(view => view.kind === 'overview' || view.id === 'overview') || data.views[0]).id;
+  const evidenceTargets = new Map();
+  for (const kind of ['modules', 'views', 'chains', 'findings', 'coverage', 'tables', 'routes', 'flags']) {
+    for (const row of data[kind]) {
+      for (const source of row.sources || []) if (source.key) evidenceTargets.set(source.key, { source, view: kind === 'views' ? row.id : kind === 'chains' ? row.readingView : overviewId, ...(kind === 'chains' ? { chain: row.id } : {}) });
+      if (kind === 'chains') for (const stage of row.stages) for (const source of stage.sources) if (source.key) evidenceTargets.set(source.key, { source, view: row.readingView || overviewId, chain: row.id, stage: stage.id });
+    }
+  }
+  const fragment = route => '#' + new URLSearchParams(Object.entries(route).filter(([, value]) => value != null)).toString();
+  function shareUrl(route) { const url = new URL(location.href); url.hash = fragment(route); return url.href; }
+  async function copyLink(route) {
+    const url = shareUrl(route);
+    try { await navigator.clipboard.writeText(url); showToast('链接已复制；分享报告后保留 # 后的定位片段。'); }
+    catch {
+      showDialog('复制定位链接', `<p>复制下方链接。分享离线报告时，可将 # 后的定位片段加到收件人的报告地址。</p><input class="share-link-input" aria-label="定位链接" readonly value="${esc(url)}">`);
+      $('dialog-body').querySelector('input').select();
+    }
+  }
   const smallScreen = window.matchMedia('(max-width: 800px)');
   const kindLabels = { fact: '事实', risk: '风险', gap: '缺口', decision: '决策' };
   const statusLabels = { confirmed: '已确认', inferred: '推断', unverified: '待验证', covered: '已覆盖', partial: '部分覆盖', unknown: '待确认', not_applicable: '不适用' };
   const statusBadge = (value, label = statusLabels[value] || value) => `<span class="status-badge status-${esc(value)}">${esc(label)}</span>`;
-  const freshnessBadge = row => row?.freshness === 'stale' ? statusBadge('stale', '待复核') : '';
+  const needsReview = row => Boolean(row?.reviewRequired || ['stale', 'unresolved', 'historical'].includes(row?.freshness) || row?.sources?.some(source => source.state === 'unresolved'));
+  const freshnessBadge = row => needsReview(row) ? statusBadge('stale', { unresolved: '证据未解析', historical: '历史证据' }[row.freshness] || '待复核') : '';
+  const stageKindLabels = { entry: '入口', authorization: '权限', validation: '校验', orchestration: '业务编排', read: '读取', write: '写入', side_effect: '外部副作用', publication: '发布', consume: '消费', outcome: '结果', recovery: '失败恢复', custom: '处理' };
+  const stageKindLabel = stage => stageKindLabels[stage.kind || 'custom'] || stage.kind;
+  const chainKindLabel = chain => ({ user_flow: '用户流程', event_flow: '事件处理', batch: '批处理', recovery: '失败恢复' }[chain.kind] || chain.kind);
 
   mermaid.initialize({
     startOnLoad: false, securityLevel: 'strict', theme: 'base',
@@ -58,7 +99,6 @@
       cScaleLabel3: '#815044', cScaleLabel4: '#386d66', cScaleLabel5: '#576551'
     },
     flowchart: { htmlLabels: false, useMaxWidth: false, curve: 'basis', nodeSpacing: 24, rankSpacing: 44, padding: 15 },
-    sequence: { useMaxWidth: false, actorMargin: 28, width: 130, height: 40, messageMargin: 27, noteMargin: 8, diagramMarginX: 15, diagramMarginY: 12, wrap: true },
     er: { useMaxWidth: false, layoutDirection: 'LR', minEntityWidth: 110, minEntityHeight: 40, entityPadding: 12, fontSize: 12 },
     mindmap: { useMaxWidth: false, padding: 16 },
     state: { useMaxWidth: false }
@@ -71,15 +111,50 @@
     toastTimer = setTimeout(() => { $('toast').hidden = true; }, 2600);
   }
 
-  function showDialog(title, body) {
+  function showDialog(title, body, sources = null, route = null) {
+    if (dialog.open) {
+      dialogHistory.push({ title: $('dialog-title').textContent, nodes: [...$('dialog-body').childNodes], sources: dialog._directSources, route: dialog._route, scrollTop: dialog.scrollTop, focus: document.activeElement });
+    } else {
+      dialogHistory.length = 0;
+    }
     $('dialog-title').textContent = title;
     $('dialog-body').innerHTML = body;
+    dialog._directSources = sources;
+    dialog._route = route;
+    $('copy-detail-link').hidden = !route;
+    $('dialog-back').hidden = !dialogHistory.length;
     if (!dialog.open) dialog.showModal();
+    dialog.scrollTop = 0;
+    $('dialog-title').focus({ preventScroll: true });
     icons();
   }
 
+  function backDialog() {
+    const previous = dialogHistory.pop();
+    if (!previous) return;
+    $('dialog-title').textContent = previous.title;
+    $('dialog-body').replaceChildren(...previous.nodes);
+    dialog._directSources = previous.sources;
+    dialog._route = previous.route;
+    $('copy-detail-link').hidden = !previous.route;
+    $('dialog-back').hidden = !dialogHistory.length;
+    dialog.scrollTop = previous.scrollTop;
+    if (previous.focus?.isConnected) previous.focus.focus({ preventScroll: true });
+    else $('dialog-title').focus({ preventScroll: true });
+  }
+
   function showEvidence(source) {
-    showDialog('源码依据', `<p>${esc(source.path)}<br>起始行 <strong>L${source.line}</strong></p><pre>${esc(source.excerpt || '此项为源码索引，完整内容见对应文件。')}</pre><a href="${fileUrl(source.path)}" target="_blank" rel="noopener">${icon('external-link')} 打开源码文件</a>`);
+    if (!source) return;
+    const context = dialog.open ? $('dialog-title').textContent : current?.title;
+    const target = evidenceTargets.get(source.key);
+    const route = source.key ? { view: target?.view || current?.id || overviewId, chain: target?.chain, stage: target?.stage, evidence: source.key } : null;
+    if (source.state === 'unresolved') {
+      showDialog('证据未解析', `<p class="stale-note">当前源码依据未解析，不能作为已确认事实。</p><p><code>${esc(source.path)}</code></p><p>${esc(source.reason)}</p>`, null, route);
+      return;
+    }
+    const lines = (source.excerpt || '此项为源码索引，完整内容见对应文件。').split('\n');
+    const code = lines.map((line, index) => `<span class="source-line${index === 0 ? ' source-anchor' : ''}" data-line="${source.line + index}">${esc(line)}</span>`).join('\n');
+    showDialog('源码依据', `<p class="source-context">${esc(context || '')}</p><p><code>${esc(source.path)}</code><br>起始行 <strong>${sourceLocation(source)}</strong> · 首行是证据锚点</p><pre class="source-code"><code>${code}</code></pre><a href="${fileUrl(source.path)}" target="_blank" rel="noopener">${icon('external-link')} 打开源码文件</a>`, null, route);
   }
 
   function showAbout() {
@@ -95,22 +170,56 @@
 
   function showUpdate() {
     const update = data.update;
+    if (!update && data.review) {
+      showDialog('复核记录', `<p>复核人：${esc(data.review.reviewer)}</p><p>复核时间：${esc(data.review.reviewedAt)}</p><p>接受时间：${esc(data.review.acceptedAt)}</p><p>版本：<code>${esc(data.review.version)}</code></p><p>复核记录绑定到接受时的源码与清单版本。</p>`);
+      return;
+    }
     if (!update) return;
     const summary = update.summary || {};
     const stale = update.staleEvidence || [];
+    const unmapped = update.unmappedChanges || [];
     const manifestChanged = Boolean(summary.manifestChanged);
     showDialog('快照后的增量变更', `<p>这是基于上次快照生成的增量候选，不代表所有结论已经重新确认。</p>
       <div class="baseline-row"><strong>变更文件</strong><span>${summary.changedFiles || 0}（新增 ${summary.added || 0} / 修改 ${summary.modified || 0} / 删除 ${summary.deleted || 0}${summary.renamed ? ` / 重命名 ${summary.renamed}` : ''}）</span></div>
       <div class="baseline-row"><strong>变更占比</strong><span>${Math.round((summary.changedFileRatio || 0) * 1000) / 10}%</span></div>
       <div class="baseline-row"><strong>受影响对象</strong><span>${summary.impactedEntities || update.impacted?.length || 0}</span></div>
-      <div class="baseline-row"><strong>待复核证据</strong><span>${summary.staleEvidence || stale.length}</span></div>
+      <div class="baseline-row"><strong>待复核证据</strong><span>${stale.length}</span></div>
+      <div class="baseline-row"><strong>待确认归属</strong><span>${unmapped.length}</span></div>
       <div class="baseline-row"><strong>可复用证据</strong><span>${summary.reusedEvidence || 0}</span></div>
       <div class="baseline-row"><strong>需重新核对</strong><span>${summary.recomputedEvidence || 0}</span></div>
       <div class="baseline-row"><strong>清单变化</strong><span>${manifestChanged ? '是，需复核' : '否'}</span></div>
       <div class="baseline-row"><strong>全量重分析</strong><span>${summary.fullReanalysisRecommended ? '建议执行' : '当前不需要'}</span></div>
       ${summary.fullReanalysisReasons?.length ? `<div class="stale-note">${summary.fullReanalysisReasons.map(reason => esc(reason)).join('<br>')}</div>` : ''}
-      ${stale.length ? `<h4>待复核项</h4><ul>${stale.slice(0, 20).map(item => `<li>${esc(item.entity)} · ${esc(item.path)} · ${esc(item.reason)}</li>`).join('')}</ul>` : '<p>没有检测到失效证据。</p>'}
+      ${stale.length ? `<details open><summary>待复核证据 · ${stale.length} 项</summary><ul>${stale.map(item => `<li>${esc(item.entity)} · ${esc(item.path)} · ${esc(item.reason)}</li>`).join('')}</ul></details>` : '<p>没有检测到失效证据。</p>'}
+      ${unmapped.length ? `<details open><summary>待确认归属 · ${unmapped.length} 项</summary><p>这些文件发生了变化，尚未关联到模块或证据，需要确认影响范围。</p><ul>${unmapped.map(item => `<li><code>${esc(item.path)}</code> · ${esc(({ added: '新增', modified: '修改', deleted: '删除', renamed: '重命名' })[item.status] || item.status)}</li>`).join('')}</ul></details>` : ''}
       <p class="update-note">候选文件：${esc(update.deltaPath || '未记录')}<br>基线：${esc(update.baseSnapshot || '未记录')}</p>`);
+  }
+
+  function isSequenceView(view) {
+    return view?.kind === 'sequence' || view?.kind === 'narrative' || /^\s*sequenceDiagram\b/.test(view?.diagram || '');
+  }
+
+  function renderSequenceDescription(view) {
+    const section = $('sequence-section');
+    const linkedChains = view.chainIds?.length
+      ? view.chainIds.map(id => data.chains.find(chain => chain.id === id)).filter(Boolean)
+      : data.chains.filter(chain => chain.views?.includes(view.id));
+    section.hidden = false;
+    $('sequence-count').textContent = linkedChains.length ? `${linkedChains.length} 条链路` : '自然语言流程';
+    $('sequence-intro').textContent = linkedChains.length
+      ? '按业务阶段阅读触发、处理、写入和结果；每一步都保留对应源码依据。'
+      : '当前视图没有绑定业务链路，以下说明来自视图备注；需要补充阶段证据时请更新 atlas.json。';
+    $('sequence-list').innerHTML = linkedChains.length ? linkedChains.map(chain => {
+      const stages = chain.stages || [];
+      return `<article class="sequence-card" data-narrative-chain="${chain.id}"><div class="sequence-card-head"><div><span class="eyebrow">${esc(chainKindLabel(chain))}</span><h4>${esc(chain.title)}</h4></div><div class="status-stack">${chainBadges(chain)}</div></div>
+        <p class="sequence-summary">${esc(chain.summary)}</p>
+        <div class="sequence-route"><strong>触发</strong><span>${esc(chain.trigger)}</span><b>→</b><strong>结果</strong><span>${esc(chain.outcome)}</span></div>
+        <p class="chain-coverage-summary">${esc(chainProgressLabel(chain))}</p>
+        <ol class="sequence-steps">${stages.map((stage, index) => `<li data-stage-anchor="${chain.id}/${stage.id}"><span class="sequence-step-index">${index + 1}</span><div><div class="sequence-step-title"><strong>${esc(stage.label)}</strong><span class="chain-stage-kind">${esc(stageKindLabel(stage))}</span>${statusBadge(stage.status)}${freshnessBadge(stage)}<button class="text-link stage-permalink" data-copy-stage="${chain.id}" data-stage="${stage.id}" aria-label="复制阶段链接">${icon('link')}</button></div><p>${esc(stage.summary)}</p>${stage.nextCheck ? `<small>待确认：${esc(stage.nextCheck)}</small>` : ''}${stage.sources?.length ? `<button class="text-link sequence-evidence" data-stage-evidence="${chain.id}" data-stage="${stage.id}">${icon('file-code-2')}查看 ${stage.sources.length} 处源码依据</button>` : ''}</div></li>`).join('')}</ol>
+        <button class="text-link sequence-open-chain" data-open-chain="${esc(chain.id)}">查看链路证据与关联模块</button>
+      </article>`;
+    }).join('') : `<div class="sequence-card sequence-card-empty"><p>${esc(view.subtitle || '请在视图备注中补充流程的触发、处理和结果。')}</p>${(view.notes || []).map(([title, text]) => `<div class="sequence-note"><strong>${esc(title)}</strong><p>${esc(text)}</p></div>`).join('')}</div>`;
+    icons();
   }
 
   function nav() {
@@ -138,7 +247,14 @@
     selectedModule = null;
     window.scrollTo({ top: 0, behavior: 'instant' });
     viewport.style.height = '';
-    if (updateHash && location.hash !== '#' + view.id) history.replaceState(null, '', '#' + view.id);
+    if (updateHash && location.hash !== '#' + view.id) history.pushState(null, '', '#' + view.id);
+    const overview = view.id === overviewId;
+    $('overview-link').hidden = overview;
+    $('project-intro').hidden = !overview;
+    $('summary-strip').hidden = !overview;
+    $('chain-section').hidden = !overview || !data.chains.length;
+    $('quality-section').hidden = !overview || !data.quality?.warnings?.length;
+    $('findings-section').hidden = !overview || !data.findings.length;
     closeNav();
     $('module-search').value = '';
     $('search-results').hidden = true;
@@ -155,6 +271,7 @@
     ] : []);
     $('view-legend').innerHTML = legend.map(item => `<span><b class="swatch" style="background:${/^#[a-fA-F0-9]{6}$/.test(item.color) ? item.color : '#89958c'}"></b>${esc(item.label)}</span>`).join('');
     $('view-notes').innerHTML = view.notes.map(([title, text]) => `<article class="fact-item"><h3>${esc(title)}</h3><p>${esc(text)}</p></article>`).join('');
+    $('view-notes').hidden = !view.notes.length;
     $('module-detail').hidden = true;
     $('module-section').hidden = view.id === 'catalog';
     $('module-list').innerHTML = view.modules.map(id => {
@@ -164,42 +281,68 @@
     $('module-count').textContent = `${view.modules.length} 项`;
     $('alias-section').hidden = !view.aliases;
     $('alias-list').innerHTML = Object.entries(view.aliases || {}).map(([name, table]) => `<div class="alias-row"><strong>${esc(name)}</strong><code>${esc(table)}</code></div>`).join('');
-    $('graph-section').hidden = !view.diagram;
+    const sequenceView = isSequenceView(view);
+    $('graph-section').hidden = !view.diagram || sequenceView;
+    $('sequence-section').hidden = !sequenceView;
     $('catalog-section').hidden = view.id !== 'catalog';
     if (view.id === 'catalog') {
       renderSerial++;
+      viewport.dataset.renderState = 'ready';
+      stage.replaceChildren();
+      camera = { x: 0, y: 0, scale: 1 };
       renderCatalog();
       const moduleIndex = document.createElement('div');
       moduleIndex.className = 'module-list';
       moduleIndex.innerHTML = data.modules.map(module => `<button class="module-row" data-inspect-module="${module.id}">${icon(module.icon)}<span>${esc(module.name)}</span><small>${esc(module.category)}</small></button>`).join('');
       $('view-notes').appendChild(moduleIndex);
+      $('view-notes').hidden = false;
       icons();
       return Promise.resolve();
     }
-    $('diagram-kind').textContent = view.diagram.trimStart().startsWith('sequenceDiagram') ? '时序关系 / 详见图中动作' : view.diagram.trimStart().startsWith('erDiagram') ? '数据对象关系 / 约束以说明为准' : view.diagram.trimStart().startsWith('stateDiagram') ? '状态与动作' : view.diagram.trimStart().startsWith('mindmap') ? '模块职责树' : '调用与数据流 / 以图中边标注为准';
-    $('diagram-counter').textContent = `${String(data.views.filter(item => item.diagram).indexOf(view) + 1).padStart(2, '0')} / ${data.stats.diagrams}`;
+    if (sequenceView) {
+      renderSerial++;
+      viewport.dataset.renderState = 'ready';
+      $('graph-status').hidden = true;
+      stage.replaceChildren();
+      camera = { x: 0, y: 0, scale: 1 };
+      renderSequenceDescription(view);
+      icons();
+      return Promise.resolve();
+    }
+    $('diagram-kind').textContent = view.diagram.trimStart().startsWith('erDiagram') ? '数据对象关系 / 约束以说明为准' : view.diagram.trimStart().startsWith('stateDiagram') ? '状态与动作' : view.diagram.trimStart().startsWith('mindmap') ? '模块职责树' : '调用与数据流 / 以图中边标注为准';
+    const visibleDiagrams = data.views.filter(item => item.diagram && !isSequenceView(item));
+    $('diagram-counter').textContent = `${String(visibleDiagrams.indexOf(view) + 1).padStart(2, '0')} / ${data.stats.diagrams}`;
     $('canvas-stamp').textContent = `${data.renderer} · ${data.date}`;
     icons();
     const serial = ++renderSerial;
     const diagram = smallScreen.matches && view.mobileDiagram ? view.mobileDiagram : view.diagram;
     renderedDiagram = diagram;
-    const cacheKey = view.id + (diagram === view.mobileDiagram ? '_mobile' : '');
+    const cacheKey = `${view.id}::${diagram === view.mobileDiagram ? 'mobile' : 'desktop'}`;
+    const renderId = `diagram_${cacheKey.replace(/[^a-zA-Z0-9_-]/g, '_')}_${serial}`;
     $('graph-status').hidden = false;
     $('graph-status').textContent = '正在绘制关系图';
     viewport.dataset.renderState = 'loading';
     $('export-svg').disabled = true;
+    stage.replaceChildren();
+    camera = { x: 0, y: 0, scale: 1 };
+    paint();
     renderQueue = renderQueue.catch(() => {}).then(async () => {
+      if (serial !== renderSerial) return;
       try {
         let svg = cache.get(cacheKey);
         if (!svg) {
-          svg = (await mermaid.render('diagram_' + cacheKey, diagram)).svg;
+          svg = (await mermaid.render(renderId, diagram)).svg;
           cache.set(cacheKey, svg);
         }
         if (serial !== renderSerial) return;
         stage.innerHTML = svg;
         const element = stage.querySelector('svg');
-        const box = element.viewBox.baseVal;
-        diagramSize = { width: box.width, height: box.height };
+        if (!element) throw new Error('EMPTY_DIAGRAM');
+        const box = element.viewBox?.baseVal;
+        const viewBox = element.getAttribute('viewBox')?.trim().split(/[ ,]+/).map(Number) || [];
+        const width = box?.width || viewBox[2] || Number.parseFloat(element.getAttribute('width')) || 0;
+        const height = box?.height || viewBox[3] || Number.parseFloat(element.getAttribute('height')) || 0;
+        diagramSize = { width, height };
         if (!(diagramSize.width > 0 && diagramSize.height > 0)) throw new Error('EMPTY_DIAGRAM');
         renderedDiagram = diagram;
         const widthScale = Math.min(1, (viewport.clientWidth - 44) / diagramSize.width);
@@ -233,7 +376,9 @@
         viewport.dataset.view = view.id;
       } catch (error) {
         if (serial !== renderSerial) return;
-        $('graph-status').textContent = '图表渲染失败。Mermaid 源码和模块证据仍可查看。';
+        stage.replaceChildren();
+        stage.innerHTML = `<div class="diagram-fallback"><strong>关系图暂时无法渲染</strong><p>保留 Mermaid 源码，流程说明和证据索引仍可继续查看。</p><pre>${esc(diagram)}</pre></div>`;
+        $('graph-status').hidden = true;
         viewport.dataset.renderState = 'error';
         console.error('Diagram rendering failed:', view.id, error);
       }
@@ -328,16 +473,15 @@
   });
 
   function moduleMarkup(module) {
-    return `<div class="module-detail-heading"><h3>${esc(module.name)}</h3><span class="status-stack"><span class="tag">${esc(module.category)}</span>${freshnessBadge(module)}</span></div><p class="summary">${esc(module.summary)}</p>${module.staleReason ? `<p class="stale-note">${esc(module.staleReason)}</p>` : ''}<ul>${module.facts.map(fact => `<li>${esc(fact)}</li>`).join('')}</ul><div class="detail-grid"><div><div class="detail-heading">关联职责</div><div class="related-links">${module.links.map(id => byId(id) ? `<button class="text-link" data-inspect-module="${id}">${esc(byId(id).name)}</button>` : '').join('')}</div></div><div><div class="detail-heading">源码依据</div>${module.sources.map((source, index) => `<button class="evidence-link" data-evidence-module="${module.id}" data-source="${index}">${icon('file-code-2')}<span>${esc(basename(source.path))}<span class="file-meta">L${source.line} · ${esc(source.path.split('/')[0])}</span></span></button>`).join('')}</div></div>`;
+    return `<div class="module-detail-heading"><h3>${esc(module.name)}</h3><span class="status-stack"><span class="tag">${esc(module.category)}</span>${freshnessBadge(module)}</span></div><p class="summary">${esc(module.summary)}</p>${module.staleReason ? `<p class="stale-note">${esc(module.staleReason)}</p>` : ''}<ul>${module.facts.map(fact => `<li>${esc(fact)}</li>`).join('')}</ul><div class="detail-grid"><div><div class="detail-heading">关联职责</div><div class="related-links">${module.links.map(id => byId(id) ? `<button class="text-link" data-inspect-module="${id}">${esc(byId(id).name)}</button>` : '').join('')}</div></div><div><div class="detail-heading">源码依据</div>${module.sources.map((source, index) => `<button class="evidence-link" data-evidence-module="${module.id}" data-source="${index}">${icon('file-code-2')}<span>${esc(basename(source.path))}<span class="file-meta">${sourceLocation(source)} · ${esc(source.path.split('/')[0])}</span></span></button>`).join('')}</div></div>`;
   }
 
   function sourceListMarkup(sources) {
-    return sources.map((source, index) => `<button class="evidence-link" data-direct-source="${index}">${icon('file-code-2')}<span>${esc(source.path)}<span class="file-meta">L${source.line}</span></span></button>`).join('');
+    return sources.map((source, index) => `<button class="evidence-link" data-direct-source="${index}">${icon('file-code-2')}<span>${esc(source.path)}<span class="file-meta">${sourceLocation(source)}</span></span></button>`).join('');
   }
 
   function showSourceCollection(title, description, sources) {
-    dialog._directSources = sources;
-    showDialog(title, `<p>${esc(description || '')}</p><div class="detail-heading">源码依据 · ${sources.length} 处</div>${sourceListMarkup(sources)}`);
+    showDialog(title, `<p>${esc(description || '')}</p><div class="detail-heading">源码依据 · ${sources.length} 处</div>${sourceListMarkup(sources)}`, sources);
   }
 
   function findingMarkup(finding) {
@@ -348,7 +492,7 @@
       ${finding.impact ? `<h4>影响</h4><p>${esc(finding.impact)}</p>` : ''}
       ${finding.nextCheck ? `<h4>最短验证路径</h4><p>${esc(finding.nextCheck)}</p>` : ''}
       ${related.length ? `<h4>关联模块</h4><div class="related-links">${related.map(module => `<button class="text-link" data-inspect-module="${module.id}">${esc(module.name)}</button>`).join('')}</div>` : ''}
-      <h4>源码依据 · ${finding.sources.length} 处</h4>${finding.sources.map((source, index) => `<button class="evidence-link" data-finding-source="${finding.id}" data-index="${index}">${icon('file-code-2')}<span>${esc(source.path)}<span class="file-meta">L${source.line}</span></span></button>`).join('')}`;
+      <h4>源码依据 · ${finding.sources.length} 处</h4>${finding.sources.map((source, index) => `<button class="evidence-link" data-finding-source="${finding.id}" data-index="${index}">${icon('file-code-2')}<span>${esc(source.path)}<span class="file-meta">${sourceLocation(source)}</span></span></button>`).join('')}`;
   }
 
   function showFinding(id) {
@@ -363,53 +507,97 @@
      showDialog(item.area, `<div class="detail-status">${statusBadge(item.status)}${freshnessBadge(item)}</div><p>${esc(item.summary)}</p>
       ${item.nextCheck ? `<h4>后续确认</h4><p>${esc(item.nextCheck)}</p>` : ''}
       ${related.length ? `<h4>关联模块</h4><div class="related-links">${related.map(module => `<button class="text-link" data-inspect-module="${module.id}">${esc(module.name)}</button>`).join('')}</div>` : ''}
-      ${item.sources.length ? `<h4>源码依据 · ${item.sources.length} 处</h4>${item.sources.map((source, index) => `<button class="evidence-link" data-coverage-source="${item.id}" data-index="${index}">${icon('file-code-2')}<span>${esc(source.path)}<span class="file-meta">L${source.line}</span></span></button>`).join('')}` : ''}`);
+      ${item.sources.length ? `<h4>源码依据 · ${item.sources.length} 处</h4>${item.sources.map((source, index) => `<button class="evidence-link" data-coverage-source="${item.id}" data-index="${index}">${icon('file-code-2')}<span>${esc(source.path)}<span class="file-meta">${sourceLocation(source)}</span></span></button>`).join('')}` : ''}`);
   }
 
   function chainProgress(chain) {
-    const total = chain.stages.length;
-    const covered = chain.stages.filter(stage => stage.status === 'covered').length;
-    const partial = chain.stages.filter(stage => stage.status === 'partial').length;
-    return { total, covered, partial, percent: total ? Math.round(((covered + partial * 0.5) / total) * 100) : 0 };
+    const applicable = chain.stages.filter(stage => stage.status !== 'not_applicable');
+    const total = applicable.length;
+    const covered = applicable.filter(stage => stage.status === 'covered').length;
+    const partial = applicable.filter(stage => stage.status === 'partial').length;
+    const unknown = applicable.filter(stage => stage.status === 'unknown').length;
+    const status = !total ? 'not_applicable' : covered === total ? 'covered' : covered || partial ? 'partial' : 'unknown';
+    return { total, covered, partial, unknown, notApplicable: chain.stages.length - total, status, review: needsReview(chain) || chain.stages.some(needsReview), percent: total ? Math.round(covered / total * 100) : 0 };
+  }
+
+  function chainProgressLabel(chain) {
+    const progress = chainProgress(chain);
+    return [progress.total ? `${progress.covered}/${progress.total} 个适用阶段已覆盖` : '无适用阶段', progress.partial ? `${progress.partial} 个部分覆盖` : '', progress.unknown ? `${progress.unknown} 个待确认` : '', progress.notApplicable ? `${progress.notApplicable} 个不适用` : ''].filter(Boolean).join(' · ');
+  }
+
+  function chainBadges(chain) {
+    const progress = chainProgress(chain);
+    return statusBadge(progress.status) + (progress.review ? statusBadge('stale', '待复核') : '');
   }
 
   function chainMarkup(chain) {
-    const progress = chainProgress(chain);
     const views = chain.views.map(id => data.views.find(view => view.id === id)).filter(Boolean);
-    return `<div class="detail-status">${statusBadge(chain.kind)}${freshnessBadge(chain)}<span class="chain-score">${progress.covered}/${progress.total} 阶段已确认</span></div>
+    return `<div class="detail-status">${statusBadge(chain.kind, chainKindLabel(chain))}${chainBadges(chain)}</div><p class="chain-coverage-summary">${esc(chainProgressLabel(chain))}</p>
       <p>${esc(chain.summary)}</p><div class="chain-route"><strong>触发</strong><span>${esc(chain.trigger)}</span><b>→</b><strong>结果</strong><span>${esc(chain.outcome)}</span></div>
-      <h4>阶段证据</h4><div class="chain-stage-list">${chain.stages.map(stage => `<div class="chain-stage"><div><strong>${esc(stage.label)}</strong><span class="chain-stage-kind">${esc(stage.kind || 'custom')}</span>${statusBadge(stage.status)}</div><p>${esc(stage.summary)}</p>${stage.nextCheck ? `<small>待确认：${esc(stage.nextCheck)}</small>` : ''}${stage.sources?.length ? `<div class="chain-stage-sources">${stage.sources.map((source, index) => `<button class="evidence-link" data-chain-stage-source="${chain.id}" data-stage="${stage.id}" data-index="${index}">${icon('file-code-2')}<span>${esc(source.path)}<span class="file-meta">L${source.line}</span></span></button>`).join('')}</div>` : ''}</div>`).join('')}</div>
-      ${views.length ? `<h4>关联关系图</h4><div class="related-links">${views.map(view => `<button class="text-link" data-chain-view="${view.id}">${icon(view.icon)}${esc(view.title)}</button>`).join('')}</div>` : ''}
-      <h4>链路源码依据 · ${chain.sources.length} 处</h4>${chain.sources.map((source, index) => `<button class="evidence-link" data-chain-source="${chain.id}" data-index="${index}">${icon('file-code-2')}<span>${esc(source.path)}<span class="file-meta">L${source.line}</span></span></button>`).join('')}`;
+      <h4>阶段证据</h4><div class="chain-stage-list">${chain.stages.map(stage => `<div class="chain-stage"><div><strong>${esc(stage.label)}</strong><span class="chain-stage-kind">${esc(stageKindLabel(stage))}</span>${statusBadge(stage.status)}${freshnessBadge(stage)}<button class="text-link stage-permalink" data-copy-stage="${chain.id}" data-stage="${stage.id}" aria-label="复制阶段链接">${icon('link')}</button></div><p>${esc(stage.summary)}</p>${stage.nextCheck ? `<small>待确认：${esc(stage.nextCheck)}</small>` : ''}${stage.sources?.length ? `<div class="chain-stage-sources">${stage.sources.map((source, index) => `<button class="evidence-link" data-chain-stage-source="${chain.id}" data-stage="${stage.id}" data-index="${index}">${icon('file-code-2')}<span>${esc(source.path)}<span class="file-meta">${sourceLocation(source)}</span></span></button>`).join('')}</div>` : ''}</div>`).join('')}</div>
+      ${views.length ? `<h4>关联视图</h4><div class="related-links">${views.map(view => `<button class="text-link" data-chain-view="${view.id}">${icon(view.icon)}${esc(view.title)}</button>`).join('')}</div>` : ''}
+      <h4>链路源码依据 · ${chain.sources.length} 处</h4>${chain.sources.map((source, index) => `<button class="evidence-link" data-chain-source="${chain.id}" data-index="${index}">${icon('file-code-2')}<span>${esc(source.path)}<span class="file-meta">${sourceLocation(source)}</span></span></button>`).join('')}`;
   }
 
   function showChain(id) {
     const chain = data.chains.find(item => item.id === id);
-    if (chain) showDialog(chain.title, chainMarkup(chain));
+    if (chain) showDialog(chain.title, chainMarkup(chain), null, { view: chain.readingView || current.id, chain: chain.id });
+  }
+
+  function restoreLocation() {
+    if (dialog.open) dialog.close();
+    dialogHistory.length = 0;
+    const hash = location.hash.slice(1);
+    const route = hash.includes('=') ? Object.fromEntries(new URLSearchParams(hash)) : { view: hash || overviewId };
+    const chain = route.chain ? data.chains.find(row => row.id === route.chain) : null;
+    const stage = route.stage ? chain?.stages.find(row => row.id === route.stage) : null;
+    const target = route.evidence ? evidenceTargets.get(route.evidence) : null;
+    navigate(route.view || chain?.readingView || target?.view || overviewId, false);
+    if ((route.chain && !chain) || (route.stage && !stage) || (route.evidence && !target) || (target && route.chain && target.chain !== route.chain) || (target && route.stage && target.stage !== route.stage) || (route.view && !data.views.some(view => view.id === route.view))) {
+      showToast('定位目标不存在，已显示可用视图。'); return;
+    }
+    if (stage) {
+      const element = [...document.querySelectorAll('[data-stage-anchor]')].find(element => element.dataset.stageAnchor === chain.id + '/' + stage.id);
+      if (element) { element.classList.add('is-target'); element.tabIndex = -1; element.scrollIntoView({ block: 'center' }); element.focus({ preventScroll: true }); }
+    }
+    if (chain && !stage) showChain(chain.id);
+    if (target) {
+      if (chain && !dialog.open) showChain(chain.id);
+      showEvidence(target.source);
+    }
   }
 
   function renderChains() {
     const section = $('chain-section');
-    section.hidden = !data.chains.length;
+    section.hidden = current?.id !== overviewId || !data.chains.length;
     const chains = data.chains.filter(chain => {
       const progress = chainProgress(chain);
-      if (chainFilter === 'review') return chain.reviewRequired || chain.freshness === 'stale';
+      if (chainFilter === 'review') return progress.review;
       if (chainFilter === 'incomplete') return progress.covered < progress.total;
-      if (chainFilter === 'covered') return progress.covered === progress.total;
+      if (chainFilter === 'covered') return progress.status === 'covered';
       return true;
     });
     $('chain-count').textContent = `${chains.length} / ${data.chains.length} 条链路`;
-    $('chain-grid').innerHTML = chains.length ? chains.map(chain => {
+    chainPage = Math.min(chainPage, Math.max(0, Math.ceil(chains.length / chainPageSize) - 1));
+    renderPager('chain-pages', chainPage, chains.length, chainPageSize, 'chains');
+    $('chain-grid').innerHTML = chains.length ? chains.slice(chainPage * chainPageSize, (chainPage + 1) * chainPageSize).map(chain => {
       const progress = chainProgress(chain);
-      return `<article class="chain-card" data-chain="${chain.id}"><div class="chain-card-head"><div><span class="eyebrow">${esc(chain.kind)}</span><h4>${esc(chain.title)}</h4></div>${freshnessBadge(chain)}</div><p>${esc(chain.summary)}</p><div class="chain-route"><span>${esc(chain.trigger)}</span><b>→</b><span>${esc(chain.outcome)}</span></div><div class="chain-progress"><span style="width:${progress.percent}%"></span></div><div class="chain-meta"><span>${progress.covered}/${progress.total} 阶段已确认</span><span>${chain.views.length} 张关联图</span><button class="text-link" data-chain="${chain.id}">查看链路</button></div></article>`;
+      return `<article class="chain-card"><div class="chain-card-head"><div><span class="eyebrow">${esc(chainKindLabel(chain))}</span><h4><button class="chain-title-link" data-chain-reading="${chain.id}">${esc(chain.title)}</button></h4></div><div class="status-stack">${chainBadges(chain)}</div></div><p>${esc(chain.summary)}</p><div class="chain-endpoints"><span><strong>触发</strong>${esc(chain.trigger)}</span><span><strong>结果</strong>${esc(chain.outcome)}</span></div><div class="chain-progress" aria-hidden="true"><span style="width:${progress.percent}%"></span></div><p class="chain-coverage-summary">${esc(chainProgressLabel(chain))}</p><div class="chain-meta"><button class="text-link" data-chain-reading="${chain.id}">阅读流程 ${icon('arrow-right')}</button><button class="text-link" data-chain="${chain.id}">查看证据</button></div></article>`;
     }).join('') : '<div class="empty-state">当前筛选条件下没有业务链路。</div>';
     icons();
   }
 
   function renderQuality() {
     const warnings = data.quality?.warnings || [];
-    $('quality-section').hidden = !warnings.length;
+    $('quality-section').hidden = current?.id !== overviewId || !warnings.length;
+    $('quality-count').textContent = `${warnings.length} 项`;
     $('quality-list').innerHTML = warnings.map(warning => `<li>${esc(warning)}</li>`).join('');
+  }
+
+  function renderHighlights() {
+    const rank = { risk: 0, gap: 1, decision: 2, fact: 3 };
+    const findings = [...data.findings].sort((a, b) => rank[a.kind] - rank[b.kind]).slice(0, 3);
+    $('finding-highlights').innerHTML = findings.map(finding => `<article class="finding-highlight"><div class="status-stack">${statusBadge(finding.kind, kindLabels[finding.kind])}${statusBadge(finding.status)}${freshnessBadge(finding)}</div><h4><button class="text-link strong-link" data-finding="${finding.id}">${esc(finding.title)}</button></h4><p>${esc(finding.summary)}</p></article>`).join('');
   }
 
   function inspectModule(id, modal = false) {
@@ -418,7 +606,7 @@
     selectedModule = id;
     stage.querySelectorAll('[data-module]').forEach(node => node.classList.toggle('is-selected', node.dataset.module === id));
     if (modal || current.id === 'catalog' || dialog.open) {
-      showDialog('模块关系与依据', moduleMarkup(module));
+      showDialog(module.name, moduleMarkup(module));
     } else {
       $('module-detail').innerHTML = moduleMarkup(module);
       $('module-detail').hidden = false;
@@ -482,7 +670,9 @@
 
   function renderCatalog() {
     const query = $('catalog-search').value.toLowerCase().trim();
-    const rows = data[catalogMode].filter(row => JSON.stringify(row).toLowerCase().includes(query));
+    const rows = data[catalogMode].filter(row => matchesSearch(row, query));
+    catalogPage = Math.min(catalogPage, Math.max(0, Math.ceil(rows.length / catalogPageSize) - 1));
+    renderPager('catalog-pages', catalogPage, rows.length, catalogPageSize, 'catalog');
     const headers = {
       chains: ['业务链路', '阶段进度', '触发与结果', '证据'],
       findings: ['发现项', '类型 / 可信度', '结论与影响', '证据'],
@@ -494,8 +684,8 @@
     }[catalogMode];
     $('catalog-head').innerHTML = `<tr>${headers.map(header => `<th scope="col">${header}</th>`).join('')}</tr>`;
     $('catalog-count').textContent = `${rows.length} / ${data[catalogMode].length} 项`;
-    $('catalog-body').innerHTML = rows.map(row => {
-      if (catalogMode === 'chains') { const progress = chainProgress(row); return `<tr><td><button class="text-link strong-link" data-chain="${row.id}">${esc(row.title)}</button><small>${esc(row.kind)}</small></td><td>${progress.covered}/${progress.total} 阶段已确认${freshnessBadge(row)}</td><td>${esc(row.summary)}<small>${esc(row.trigger)} → ${esc(row.outcome)}</small></td><td><button class="text-link" data-chain="${row.id}">${row.sources.length} 处依据</button></td></tr>`; }
+    $('catalog-body').innerHTML = rows.slice(catalogPage * catalogPageSize, (catalogPage + 1) * catalogPageSize).map(row => {
+      if (catalogMode === 'chains') return `<tr><td><button class="text-link strong-link" data-chain="${row.id}">${esc(row.title)}</button><small>${esc(chainKindLabel(row))}</small></td><td><div class="status-stack">${chainBadges(row)}</div><small>${esc(chainProgressLabel(row))}</small></td><td>${esc(row.summary)}<small>${esc(row.trigger)} → ${esc(row.outcome)}</small></td><td><button class="text-link" data-chain="${row.id}">${row.sources.length} 处依据</button></td></tr>`;
       if (catalogMode === 'findings') return `<tr><td><button class="text-link strong-link" data-finding="${row.id}">${esc(row.title)}</button></td><td><div class="status-stack">${statusBadge(row.kind, kindLabels[row.kind])}${statusBadge(row.status)}${freshnessBadge(row)}</div></td><td>${esc(row.summary)}${row.impact ? `<small>${esc(row.impact)}</small>` : ''}</td><td><button class="text-link" data-finding="${row.id}">${row.sources.length} 处依据</button></td></tr>`;
       if (catalogMode === 'coverage') return `<tr><td><button class="text-link strong-link" data-coverage="${row.id}">${esc(row.area)}</button></td><td>${statusBadge(row.status)}${freshnessBadge(row)}</td><td>${esc(row.summary)}${row.nextCheck ? `<small>待确认：${esc(row.nextCheck)}</small>` : ''}</td><td><button class="text-link" data-coverage="${row.id}">${row.sources.length} 处依据</button></td></tr>`;
       if (catalogMode === 'tables') return `<tr><td><code>${esc(row.name)}</code>${freshnessBadge(row)}<small>${esc(row.title)}</small></td><td>${esc(row.kind)}</td><td>${esc(row.description)}</td><td><button class="text-link" data-table="${esc(row.name)}">${row.sources.length} 处依据</button></td></tr>`;
@@ -511,7 +701,7 @@
   function showTable(name) {
     const table = data.tables.find(item => item.name === name);
     if (!table) return;
-    showDialog(table.title, `<p><code>${esc(name)}</code><br>${esc(table.kind)} · ${esc(table.description)}</p><div class="detail-heading">源码引用位置（引用不等于写入）</div>${table.sources.map((source, index) => `<button class="evidence-link" data-table-source="${esc(name)}" data-index="${index}">${icon('file-code-2')}<span>${esc(basename(source.path))}<span class="file-meta">L${source.line}</span></span></button>`).join('')}`);
+    showDialog(table.title, `<p><code>${esc(name)}</code><br>${esc(table.kind)} · ${esc(table.description)}</p><div class="detail-heading">源码引用位置（引用不等于写入）</div>${table.sources.map((source, index) => `<button class="evidence-link" data-table-source="${esc(name)}" data-index="${index}">${icon('file-code-2')}<span>${esc(basename(source.path))}<span class="file-meta">${sourceLocation(source)}</span></span></button>`).join('')}`);
   }
 
   $('module-search').addEventListener('input', event => {
@@ -519,16 +709,17 @@
     $('view-nav').hidden = Boolean(query);
     $('search-results').hidden = !query;
     if (!query) return;
-    const views = data.views.filter(view => [view.title, view.subtitle, view.group, ...(view.tags || [])].join(' ').toLowerCase().includes(query)).slice(0, 5);
-    const chains = data.chains.filter(chain => JSON.stringify(chain).toLowerCase().includes(query)).slice(0, 5);
-    const modules = data.modules.filter(module => JSON.stringify(module).toLowerCase().includes(query)).slice(0, 6);
-    const findings = data.findings.filter(finding => JSON.stringify(finding).toLowerCase().includes(query)).slice(0, 5);
-    const coverage = data.coverage.filter(item => JSON.stringify(item).toLowerCase().includes(query)).slice(0, 5);
-    const routes = data.routes.filter(route => JSON.stringify(route).toLowerCase().includes(query)).slice(0, 5);
-    const tables = data.tables.filter(table => [table.name, table.title, table.description].join(' ').toLowerCase().includes(query)).slice(0, 5);
-    const flags = data.flags.filter(flag => JSON.stringify(flag).toLowerCase().includes(query)).slice(0, 5);
-    const files = data.files.filter(file => file.name.toLowerCase().includes(query)).slice(0, 5);
-    $('search-results').innerHTML = [
+    const views = data.views.filter(view => matchesSearch(view, query)).slice(0, 5);
+    const chains = data.chains.filter(chain => matchesSearch(chain, query)).slice(0, 5);
+    const modules = data.modules.filter(module => matchesSearch(module, query)).slice(0, 6);
+    const findings = data.findings.filter(finding => matchesSearch(finding, query)).slice(0, 5);
+    const coverage = data.coverage.filter(item => matchesSearch(item, query)).slice(0, 5);
+    const routes = data.routes.filter(route => matchesSearch(route, query)).slice(0, 5);
+    const tables = data.tables.filter(table => matchesSearch(table, query)).slice(0, 5);
+    const flags = data.flags.filter(flag => matchesSearch(flag, query)).slice(0, 5);
+    const files = data.files.filter(file => matchesSearch(file, query)).slice(0, 5);
+    const total = ['views', 'modules', ...catalogKinds].reduce((count, kind) => count + data[kind].filter(row => matchesSearch(row, query)).length, 0);
+    $('search-results').innerHTML = (total ? `<div class="search-label">共 ${total} 项匹配，每类预览 5 项（模块 6 项）；索引类记录可在证据索引继续筛选。</div>` : '') + ([
       chains.length ? '<div class="search-label">业务链路</div>' + chains.map(chain => `<button class="search-result" data-chain="${chain.id}">${esc(chain.title)}<small>${esc(chain.kind)}</small></button>`).join('') : '',
       views.length ? '<div class="search-label">视图</div>' + views.map(view => `<button class="search-result" data-search-view="${view.id}">${esc(view.title)}<small>${esc(view.group)}</small></button>`).join('') : '',
       modules.length ? '<div class="search-label">模块</div>' + modules.map(module => `<button class="search-result" data-search-module="${module.id}">${esc(module.name)}<small>${esc(module.category)}</small></button>`).join('') : '',
@@ -538,12 +729,31 @@
       tables.length ? '<div class="search-label">数据对象</div>' + tables.map(table => `<button class="search-result" data-table="${esc(table.name)}">${esc(table.title)}<small>${esc(table.name)}</small></button>`).join('') : '',
       flags.length ? '<div class="search-label">配置项</div>' + flags.map(flag => `<button class="search-result" data-flag="${esc(flag.name)}">${esc(flag.name)}<small>${esc(typeof flag.value === 'object' ? JSON.stringify(flag.value) : flag.value)}</small></button>`).join('') : '',
       files.length ? '<div class="search-label">代码文件</div>' + files.map(file => `<a class="search-result" target="_blank" rel="noopener" href="${fileUrl(file.path)}">${esc(file.name)}<small>${esc(file.group)}</small></a>`).join('') : ''
-    ].join('') || '<div class="search-label">没有匹配的分析内容</div>';
+    ].join('') || '<div class="search-label">没有匹配的分析内容</div>');
   });
 
   document.addEventListener('click', event => {
+    const reading = event.target.closest('[data-chain-reading]');
+    if (reading) {
+      const chain = data.chains.find(item => item.id === reading.dataset.chainReading);
+      if (chain?.readingView) navigate(chain.readingView);
+      return;
+    }
+    const stageEvidence = event.target.closest('[data-stage-evidence]');
+    if (stageEvidence) {
+      const chain = data.chains.find(item => item.id === stageEvidence.dataset.stageEvidence);
+      const stage = chain?.stages.find(item => item.id === stageEvidence.dataset.stage);
+      if (stage) showSourceCollection(`${chain.title} · ${stage.label}`, stage.summary, stage.sources);
+      return;
+    }
+    const openChain = event.target.closest('[data-open-chain]');
+    if (openChain) { showChain(openChain.dataset.openChain); return; }
     const chain = event.target.closest('[data-chain]');
-    if (chain) { closeNav(); showChain(chain.dataset.chain); return; }
+    if (chain) {
+      closeNav();
+      showChain(chain.dataset.chain);
+      return;
+    }
     const chainView = event.target.closest('[data-chain-view]');
     if (chainView) { dialog.close(); navigate(chainView.dataset.chainView); return; }
     const chainStageSource = event.target.closest('[data-chain-stage-source]');
@@ -580,6 +790,7 @@
     const catalogTab = event.target.closest('[data-catalog]');
     if (catalogTab) {
       catalogMode = catalogTab.dataset.catalog;
+      catalogPage = 0;
       $('catalog-search').value = '';
       document.querySelectorAll('[data-catalog]').forEach(button => button.setAttribute('aria-selected', String(button === catalogTab)));
       renderCatalog();
@@ -588,11 +799,20 @@
     if (event.target.closest('#download-mermaid')) download(`${current.title}.mmd`, sourceForCopy, 'text/plain;charset=utf-8');
   });
 
-  $('catalog-search').addEventListener('input', renderCatalog);
-  $('chain-filter').addEventListener('change', event => { chainFilter = event.target.value; renderChains(); });
+  document.addEventListener('click', event => {
+    const button = event.target.closest('[data-page-target]');
+    if (!button || button.disabled) return;
+    if (button.dataset.pageTarget === 'catalog') { catalogPage = Number(button.dataset.page); renderCatalog(); }
+    else { chainPage = Number(button.dataset.page); renderChains(); }
+    const target = button.dataset.pageTarget === 'catalog' ? 'catalog-section' : 'chain-section';
+    $(target).scrollIntoView({ block: 'start' });
+    const heading = $(target).querySelector('h3'); heading.tabIndex = -1; heading.focus({ preventScroll: true });
+  });
+  $('catalog-search').addEventListener('input', () => { catalogPage = 0; renderCatalog(); });
+  $('chain-filter').addEventListener('change', event => { chainFilter = event.target.value; chainPage = 0; renderChains(); });
   function showEvidenceList(row, kind) {
     const index = data[kind].indexOf(row);
-    showDialog('源码依据 · ' + (row.name || row.prefix), `<p>${esc(row.description || '')}</p>${row.sources.map((source, sourceIndex) => `<button class="evidence-link" data-index-kind="${kind}" data-row="${index}" data-index-source="${sourceIndex}">${icon('file-code-2')}<span>${esc(source.path)}<span class="file-meta">L${source.line}</span></span></button>`).join('')}`);
+    showDialog('源码依据 · ' + (row.name || row.prefix), `<p>${esc(row.description || '')}</p>${row.sources.map((source, sourceIndex) => `<button class="evidence-link" data-index-kind="${kind}" data-row="${index}" data-index-source="${sourceIndex}">${icon('file-code-2')}<span>${esc(source.path)}<span class="file-meta">${sourceLocation(source)}</span></span></button>`).join('')}`);
   }
   $('zoom-in').addEventListener('click', () => zoom(camera.scale * 1.2));
   $('zoom-out').addEventListener('click', () => zoom(camera.scale / 1.2));
@@ -613,7 +833,18 @@
   $('show-view-evidence').addEventListener('click', () => showSourceCollection('本视图源码依据', current.subtitle, current.sources || []));
   $('about-button').addEventListener('click', showAbout);
   $('update-button').addEventListener('click', showUpdate);
+  $('copy-view-link').addEventListener('click', () => copyLink({ view: current.id }));
+  $('copy-detail-link').addEventListener('click', () => { if (dialog._route) copyLink(dialog._route); });
+  document.addEventListener('click', event => {
+    const button = event.target.closest('[data-copy-stage]');
+    if (!button) return;
+    const chain = data.chains.find(row => row.id === button.dataset.copyStage);
+    copyLink({ view: chain.readingView || current.id, chain: chain.id, stage: button.dataset.stage });
+  });
   $('close-dialog').addEventListener('click', () => dialog.close());
+  $('dialog-back').addEventListener('click', backDialog);
+  dialog.addEventListener('close', () => { if (dialog.open) return; dialogHistory.length = 0; dialog._directSources = null; $('dialog-back').hidden = true; });
+  $('overview-link').addEventListener('click', () => navigate(overviewId));
   dialog.addEventListener('click', event => {
     if (event.target !== dialog) return;
     const box = dialog.getBoundingClientRect();
@@ -622,7 +853,7 @@
   $('open-nav').addEventListener('click', () => { $('sidebar').classList.add('is-open'); $('nav-backdrop').hidden = false; });
   $('close-nav').addEventListener('click', closeNav);
   $('nav-backdrop').addEventListener('click', closeNav);
-  window.addEventListener('hashchange', () => navigate(location.hash.slice(1), false));
+  window.addEventListener('hashchange', restoreLocation);
   smallScreen.addEventListener('change', () => { if (current) navigate(current.id, false); });
   window.addEventListener('keydown', event => {
     if (event.key === 'Escape') closeNav();
@@ -645,7 +876,12 @@
     $('update-button').hidden = false;
     $('update-label').textContent = summary.manifestChanged && !summary.changedFiles ? '分析清单已更新' : `${summary.changedFiles || 0} 个增量变更`;
     $('update-button').classList.toggle('is-warning', Boolean(data.update.reviewRequired));
+  } else if (data.review) {
+    $('update-button').hidden = false;
+    $('update-label').textContent = '已复核';
   }
+  $('review-banner').hidden = !data.reviewMode;
+  $('review-banner').textContent = `仅供复核 · ${data.unresolvedCount || 0} 处证据未解析。候选结论尚需逐项确认。`;
   $('open-findings').disabled = !data.findings.length;
   $('open-coverage').disabled = !data.coverage.length;
   $('open-chains').disabled = !data.chains.length;
@@ -653,6 +889,10 @@
   $('footer-boundary').textContent = data.project.boundary;
   renderChains();
   renderQuality();
+  renderHighlights();
+  $('project-summary').textContent = data.project.summary || data.project.scope;
+  $('project-scope').textContent = `分析范围：${data.project.scope}`;
+  $('project-scope').hidden = !data.project.summary;
   $('project-title').textContent = data.project.title;
   $('project-subtitle').textContent = data.project.subtitle;
   document.title = data.project.title;
@@ -663,15 +903,17 @@
   function openCatalog(kind) {
     if (!catalogKinds.includes(kind)) return;
     catalogMode = kind;
+    catalogPage = 0;
     navigate('catalog');
     document.querySelectorAll('[data-catalog]').forEach(button => button.setAttribute('aria-selected', String(button.dataset.catalog === kind)));
     renderCatalog();
   }
   $('open-findings').addEventListener('click', () => openCatalog('findings'));
+  $('all-findings').addEventListener('click', () => openCatalog('findings'));
   $('open-coverage').addEventListener('click', () => openCatalog('coverage'));
   $('open-chains').addEventListener('click', () => openCatalog('chains'));
   nav();
   icons();
-  window.repoAtlas = { navigate, data, fit, get currentView() { return current?.id; }, get camera() { return { ...camera }; }, get selectedModule() { return selectedModule; } };
-  navigate(location.hash.slice(1) || data.views[0].id, false);
+  window.repoAtlas = { navigate, data, fit, shareUrl, get currentView() { return current?.id; }, get camera() { return { ...camera }; }, get selectedModule() { return selectedModule; } };
+  restoreLocation();
 })();

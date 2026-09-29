@@ -9,10 +9,44 @@ permissions:
 
 jobs:
   test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: [18, 22, 24]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm test
+      - run: npm install --prefix tmp-schema-validation --no-save --package-lock=false ajv@8.17.1
+      - run: node scripts/verify-schema.mjs --ajv tmp-schema-validation/node_modules/ajv/dist/2020.js
+  browser:
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-      - run: npm test
+          node-version: 24
+      - run: npm install --no-save --package-lock=false playwright@1.58.2
+      - run: npx playwright install --with-deps ${{ matrix.browser }}
+      - run: node scripts/build.mjs tests/fixtures/multi-chain/atlas.json
+      - run: node scripts/verify.mjs tests/fixtures/multi-chain/report.html --browser ${{ matrix.browser }}
+      - run: node scripts/prepare-review-fixture.mjs tmp-review-ci
+      - run: node scripts/verify.mjs tmp-review-ci/unresolved/report.html --browser ${{ matrix.browser }}
+      - run: node scripts/verify.mjs tmp-review-ci/accepted/.repo-atlas/accepted/fixture/report.html --browser ${{ matrix.browser }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-verification-${{ matrix.browser }}
+          include-hidden-files: true
+          path: |
+            tests/fixtures/multi-chain/report.verification/
+            tmp-review-ci/unresolved/report.verification/
+            tmp-review-ci/accepted/.repo-atlas/accepted/fixture/report.verification/

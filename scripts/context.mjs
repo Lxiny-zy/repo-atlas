@@ -1,154 +1,94 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, relative } from 'node:path';
-import { execFileSync } from 'node:child_process';
-import {
-  assertOutputInside,
-  checkedPath,
-  collectSourceRows,
-  loadManifest,
-  parseOptions,
-  repoRelative,
-  writeJson
-} from './snapshot-lib.mjs';
+import { readFile } from 'node:fs/promises';
+import { relative } from 'node:path';
+import { assertOutputInside, checkedPath, collectSourceRows, loadManifest, parseOptions, writeJson, validateDelta, protectedSourcePaths, buildSummaryIndex } from './snapshot-lib.mjs';
+import { planOutput, atomicWrite } from './io-lib.mjs';
+import { sourceReader, hashText, redactionValues, redactionHash, redactText, redactValue } from './evidence-lib.mjs';
+import { baselineTexts, textDiff } from './git-lib.mjs';
+import { budgetContext } from './context-lib.mjs';
 
 const options = parseOptions(process.argv.slice(2));
-const manifestArg = options._[0];
-if (!manifestArg || options.help) {
-  console.error('Usage: node context.mjs <atlas.json> [--from .repo-atlas/snapshot.json] [--delta .repo-atlas/delta.json] [--out .repo-atlas/context.json] [--changed-only] [--stale-only] [--previous-manifest atlas.previous.json]');
+if (!options._[0] || options.help) {
+  console.error('Usage: node context.mjs <atlas.json> [--from snapshot.json] [--delta delta.json] [--out context.json] [--changed-only] [--stale-only] [--previous-manifest atlas.previous.json] [--max-bytes 262144]');
   process.exit(options.help ? 0 : 2);
 }
-
-const bundle = await loadManifest(manifestArg);
+const bundle = await loadManifest(options._[0]);
 const baselinePath = assertOutputInside(bundle.workspace, options.from || '.repo-atlas/snapshot.json');
 const deltaPath = assertOutputInside(bundle.workspace, options.delta || '.repo-atlas/delta.json');
 const baseline = JSON.parse(await readFile(baselinePath, 'utf8'));
 const delta = JSON.parse(await readFile(deltaPath, 'utf8'));
-const previousManifestPath = options['previous-manifest']
-  ? assertOutputInside(bundle.workspace, options['previous-manifest'])
-  : null;
-const previousManifest = previousManifestPath ? JSON.parse(await readFile(previousManifestPath, 'utf8')) : null;
-
-const changedOnly = Boolean(options['changed-only']);
-const staleOnly = Boolean(options['stale-only']);
+const currentSnapshot = await validateDelta(bundle, baseline, delta);
+const previousManifestPath = options['previous-manifest'] ? assertOutputInside(bundle.workspace, options['previous-manifest']) : null;
+const previousManifest = previousManifestPath ? JSON.parse((await readFile(previousManifestPath, 'utf8')).replace(/^\uFEFF/, '')) : null;
+const protectedPaths = [...protectedSourcePaths(bundle, { ...baseline.files, ...currentSnapshot.files }), baselinePath, deltaPath, ...(previousManifestPath ? [previousManifestPath] : [])];
+const output = planOutput(bundle.workspace, options.out || options.output || '.repo-atlas/context.json', { protectedPaths });
+const maxBytes = Number(options['max-bytes'] ?? 262144);
+if (!Number.isInteger(maxBytes) || maxBytes < 4096 || maxBytes > 16 * 1024 * 1024) throw new Error('--max-bytes must be an integer from 4096 to 16777216');
+const sourceRows = collectSourceRows(bundle.manifest);
+const currentSecrets = redactionValues(sourceRows);
+const previousSecrets = previousManifest ? redactionValues(collectSourceRows(previousManifest)) : [];
+const secrets = [...new Set([...currentSecrets, ...previousSecrets])];
+const historyPolicyKnown = baseline.redactionPolicySha256 === redactionHash(currentSecrets) || (previousManifest && baseline.redactionPolicySha256 === redactionHash(previousSecrets));
+const changedOnly = Boolean(options['changed-only']), staleOnly = Boolean(options['stale-only']);
 const changedPaths = new Set((delta.changes || []).flatMap(change => [change.path, change.renamedFrom].filter(Boolean)));
 const staleEntities = new Set((delta.staleEvidence || []).map(item => item.entity));
-const impacted = new Set(delta.impacted || []);
 const entityKey = (type, id) => `${type}:${id}`;
 const entities = new Map();
-const addEntity = (type, row, id = row.id ?? row.name ?? row.prefix) => {
-  const key = entityKey(type, id);
-  entities.set(key, { key, type, id, row });
-};
+const addEntity = (type, row, id = row.id ?? row.name ?? row.prefix) => entities.set(entityKey(type, id), { type, id, row });
 for (const row of bundle.manifest.modules || []) addEntity('module', row);
 for (const row of bundle.manifest.views || []) addEntity('view', row);
 for (const row of bundle.manifest.chains || []) {
   addEntity('chain', row);
-  for (const stage of row.stages || []) addEntity('chain', row, `${row.id}/${stage.id}`);
+  for (const stage of row.stages || []) addEntity('chain-stage', { ...stage, modules: stage.modules || row.modules || [] }, `${row.id}/${stage.id}`);
 }
-for (const [type, rows, idField] of [
-  ['table', bundle.manifest.tables, 'name'],
-  ['route', bundle.manifest.routes, 'prefix'],
-  ['flag', bundle.manifest.flags, 'name'],
-  ['finding', bundle.manifest.findings, 'id'],
-  ['coverage', bundle.manifest.coverage, 'id']
-]) for (const row of rows || []) addEntity(type, row, row[idField]);
-
-const selectedKeys = new Set();
-for (const key of impacted) if (entities.has(key)) selectedKeys.add(key);
-for (const item of delta.staleEvidence || []) if (entities.has(item.entity)) selectedKeys.add(item.entity);
-for (const change of delta.changes || []) for (const key of change.impact || []) if (entities.has(key)) selectedKeys.add(key);
+for (const [type, collection, field] of [['table','tables','name'], ['route','routes','prefix'], ['flag','flags','name'], ['finding','findings','id'], ['coverage','coverage','id']]) {
+  for (const row of bundle.manifest[collection] || []) addEntity(type, row, row[field]);
+}
+const selectedKeys = new Set([...(delta.impacted || []), ...staleEntities].filter(key => entities.has(key)));
 if (!selectedKeys.size && !changedOnly && !staleOnly) for (const key of entities.keys()) selectedKeys.add(key);
-if (staleOnly) {
-  for (const key of [...selectedKeys]) if (!staleEntities.has(key)) selectedKeys.delete(key);
-}
-
-const runGit = args => {
-  try {
-    return execFileSync('git', ['--no-optional-locks', ...args], {
-      cwd: bundle.workspace,
-      encoding: 'utf8',
-      windowsHide: true,
-      stdio: ['ignore', 'pipe', 'ignore'],
-      maxBuffer: 1024 * 1024
-    });
-  } catch {
-    return '';
-  }
-};
-const clip = (value, max = 12000) => value.length > max ? `${value.slice(0, max)}\n... [truncated]` : value;
-const diffFor = path => {
-  const base = baseline.git?.commit;
-  const args = base
-    ? ['diff', '--no-ext-diff', '--unified=4', base, '--', path]
-    : ['diff', '--no-ext-diff', '--unified=4', '--', path];
-  return clip(runGit(args));
-};
-const oldFileText = new Map();
-const currentFileText = new Map();
-const readCurrent = async path => {
-  if (!currentFileText.has(path)) {
-    try { currentFileText.set(path, await readFile(await checkedPath(bundle.workspace, path), 'utf8')); }
-    catch { currentFileText.set(path, null); }
-  }
-  return currentFileText.get(path);
-};
-const readOld = path => {
-  if (!oldFileText.has(path)) {
-    const commit = baseline.git?.commit;
-    oldFileText.set(path, commit ? runGit(['show', `${commit}:${path}`]) || null : null);
-  }
-  return oldFileText.get(path);
-};
-const excerpt = (text, source) => {
-  if (!text) return null;
-  const lines = text.split(/\r?\n/);
-  const matches = lines.flatMap((line, index) => line.includes(source.match) ? [index] : []);
-  const start = matches[(source.occurrence ?? 1) - 1];
-  if (start == null) return null;
-  let value = lines.slice(start, start + (source.length ?? 8)).join('\n');
-  for (const secret of source.redact || []) value = value.split(secret).join('[REDACTED]');
-  return { line: start + 1, text: value };
-};
-
-const changes = (delta.changes || []).filter(change => !changedOnly || changedPaths.has(change.path) || changedPaths.has(change.renamedFrom));
-const changedFiles = await Promise.all(changes.map(async change => ({
-  path: change.path,
-  status: change.status,
-  renamedFrom: change.renamedFrom || null,
-  oldSha256: change.oldSha256 || null,
-  newSha256: change.newSha256 || null,
-  impact: change.impact || [],
-  diff: diffFor(change.path)
-})));
-
-const sourceRows = collectSourceRows(bundle.manifest);
-const selectedSourceRows = sourceRows.filter(source => {
-  const key = entityKey(source.entityType, source.entityId);
-  if (staleOnly) return staleEntities.has(key);
-  if (changedOnly) return changedPaths.has(repoRelative(bundle.workspace, source.path)) || selectedKeys.has(key);
-  return selectedKeys.has(key);
-});
-const evidence = await Promise.all(selectedSourceRows.map(async source => {
-  const path = repoRelative(bundle.workspace, source.path);
-  const oldRecord = baseline.evidence?.[source.key] || null;
-  const current = excerpt(await readCurrent(source.path), source);
-  const previous = excerpt(readOld(path), source);
-  return {
-    key: source.key,
-    entity: entityKey(source.entityType, source.entityId),
-    path,
-    match: source.match,
-    current,
-    previous,
-    baseline: oldRecord ? {
-      line: oldRecord.line,
-      resolved: oldRecord.resolved,
-      fileSha256: oldRecord.fileSha256,
-      excerptSha256: oldRecord.excerptSha256
-    } : null
-  };
+if (staleOnly) for (const key of [...selectedKeys]) if (!staleEntities.has(key)) selectedKeys.delete(key);
+const selectedEvidence = new Set([...Object.keys(baseline.evidence), ...Object.keys(currentSnapshot.evidence)].filter(key => {
+  const row = currentSnapshot.evidence[key] || baseline.evidence[key];
+  return staleOnly ? staleEntities.has(entityKey(row.entityType, row.entityId)) : selectedKeys.has(entityKey(row.entityType, row.entityId)) || (changedOnly && changedPaths.has(row.path));
 }));
-
+const historicPaths = [...(delta.changes || []).map(change => change.renamedFrom || change.path), ...[...selectedEvidence].filter(key => baseline.evidence[key]?.storedExcerpt == null).map(key => baseline.evidence[key]?.path).filter(Boolean)];
+const oldTexts = historyPolicyKnown ? baselineTexts(bundle.workspace, baseline, historicPaths, { maxBytes: Math.max(1024 * 1024, maxBytes * 8) }) : new Map();
+const read = sourceReader(path => checkedPath(bundle.workspace, path));
+const readCurrent = async path => {
+  const file = await read(path);
+  if (file.sha256 !== currentSnapshot.files[path]?.sha256) throw new Error(`Source drift while reading context: ${path}`);
+  return file.text;
+};
+const changedFiles = [];
+let currentReadBytes = 0;
+for (const change of delta.changes || []) {
+  const oldPath = change.renamedFrom || change.path;
+  const old = change.oldSha256 == null ? { text: '', reason: null } : historyPolicyKnown ? oldTexts.get(oldPath) : { text: null, reason: 'baseline-redaction-policy-unavailable' };
+  const size = currentSnapshot.files[change.path]?.size || 0;
+  const readLimited = size > 8 * 1024 * 1024 || currentReadBytes + size > Math.max(1024 * 1024, maxBytes * 8);
+  const canDiff = old?.text != null && !readLimited;
+  const now = !canDiff || change.newSha256 == null ? '' : await readCurrent(change.path);
+  if (canDiff) currentReadBytes += size;
+  const safeDiff = canDiff ? redactText(textDiff(old.text, now, change.path), secrets) : null;
+  changedFiles.push({ ...change, renamedFrom: change.renamedFrom || null, diff: safeDiff == null ? null : safeDiff.slice(0, 12000), diffTruncated: (safeDiff?.length || 0) > 12000, diffUnavailableReason: old?.text == null ? old?.reason || 'historic-content-unavailable' : readLimited ? 'current-read-budget' : null });
+}
+const evidence = [];
+for (const key of selectedEvidence) {
+  const old = baseline.evidence[key], now = currentSnapshot.evidence[key], row = now || old;
+  let previous = null, previousUnavailableReason = old ? old.staleReason || 'historic-excerpt-unavailable' : 'not-in-baseline';
+  if (old?.resolved && typeof old.storedExcerpt === 'string' && hashText(old.storedExcerpt) === old.storedExcerptSha256) {
+    previous = { line: old.line, text: old.storedExcerpt }; previousUnavailableReason = null;
+  } else if (old?.resolved && historyPolicyKnown && oldTexts.get(old.path)?.text != null) {
+    const raw = oldTexts.get(old.path).text.split(/\r?\n/).slice(old.line - 1, old.line - 1 + old.length).join('\n');
+    if (hashText(raw) === old.excerptSha256) { previous = { line: old.line, text: redactText(raw, secrets) }; previousUnavailableReason = null; }
+    else previousUnavailableReason = 'historic-excerpt-hash-mismatch';
+  }
+  evidence.push({ key, entity: entityKey(row.entityType, row.entityId), path: row.path, match: row.match,
+    current: now?.resolved ? { line: now.line, text: now.storedExcerpt } : null,
+    currentUnavailableReason: now?.resolved ? null : now?.staleReason || 'removed-from-manifest',
+    previous, previousUnavailableReason,
+    baseline: old ? { line: old.line, resolved: old.resolved, fileSha256: old.fileSha256, excerptSha256: old.excerptSha256 } : null
+  });
+}
 const modules = bundle.manifest.modules || [];
 const moduleById = new Map(modules.map(row => [row.id, row]));
 const impactedModuleIds = new Set();
@@ -168,51 +108,23 @@ const relationships = {
   relatedChains
 };
 
+const previousSummaries = previousManifest ? buildSummaryIndex(previousManifest) : baseline.summaryIndex || {};
 const selectedEntities = [...selectedKeys].map(key => {
-  const item = entities.get(key);
-  const stageMatch = item.type === 'chain' && item.id.includes('/')
-    ? item.row.stages?.find(stage => `${item.row.id}/${stage.id}` === item.id)
-    : null;
-  const row = stageMatch || item.row;
-  const previousChain = item.type === 'chain' && previousManifest
-    ? (previousManifest.chains || []).find(candidate => candidate.id === item.id.split('/')[0])
-    : null;
-  const previousRow = previousManifest
-    ? (item.type === 'chain'
-      ? (item.id.includes('/') ? previousChain?.stages?.find(stage => `${previousChain.id}/${stage.id}` === item.id) : previousChain)
-      : (previousManifest[`${item.type}s`] || []).find(candidate => (candidate.id ?? candidate.name ?? candidate.prefix) === item.id))
-    : null;
-  return {
-    key,
-    type: item.type,
-    id: item.id,
-    title: row.title || row.name || row.label || row.area || row.prefix || item.id,
-    summary: row.summary || row.description || '',
-    previousSummary: baseline.summaryIndex?.[key]?.summary || previousRow?.summary || previousRow?.description || null,
-    status: row.status || null,
-    modules: row.modules || [],
-    stale: staleEntities.has(key),
+  const { type, id, row } = entities.get(key);
+  return { key, type, id, title: row.title || row.name || row.label || row.area || row.prefix || id,
+    summary: row.summary || row.description || '', previousSummary: previousSummaries[key]?.summary ?? null,
+    status: row.status || null, modules: row.modules || [], stale: staleEntities.has(key),
     sources: sourceRows.filter(source => entityKey(source.entityType, source.entityId) === key).map(source => source.key)
   };
 });
-
-const output = assertOutputInside(bundle.workspace, options.out || options.output || '.repo-atlas/context.json');
-const context = {
-  schemaVersion: 1,
-  generatedAt: new Date().toISOString(),
-  purpose: 'incremental-analysis-context',
+const context = redactValue({
+  schemaVersion: 2, generatedAt: new Date().toISOString(), purpose: 'incremental-analysis-context',
   baseline: { path: options.from || '.repo-atlas/snapshot.json', generatedAt: baseline.generatedAt, git: baseline.git || null },
   delta: { path: options.delta || '.repo-atlas/delta.json', generatedAt: delta.generatedAt, summary: delta.summary || null },
   filters: { changedOnly, staleOnly, previousManifest: previousManifestPath ? relative(bundle.workspace, previousManifestPath).replaceAll('\\', '/') : null },
-  changedFiles,
-  entities: selectedEntities,
-  evidence,
-  relationships,
-  omitted: {
-    unchangedEntities: Math.max(0, entities.size - selectedEntities.length),
-    unchangedFiles: Math.max(0, Object.keys(baseline.files || {}).length - changedFiles.length)
-  }
-};
-await mkdir(dirname(output), { recursive: true });
-await writeFile(output, writeJson(context), { encoding: 'utf8', flag: 'w' });
-console.log(JSON.stringify({ output, changedFiles: changedFiles.length, entities: selectedEntities.length, evidence: evidence.length, ...delta.summary }, null, 2));
+  changedFiles, entities: selectedEntities, evidence, relationships, unmappedChanges: delta.unmappedChanges || [],
+  omitted: { unchangedEntities: Math.max(0, entities.size - selectedEntities.length), unchangedFiles: Math.max(0, Object.keys(baseline.files).length - changedFiles.length) }
+}, secrets);
+budgetContext(context, maxBytes);
+await atomicWrite(bundle.workspace, output, writeJson(context), { protectedPaths });
+console.log(JSON.stringify({ output, changedFiles: context.changedFiles.length, entities: context.entities.length, evidence: context.evidence.length, ...delta.summary }, null, 2));

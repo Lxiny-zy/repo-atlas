@@ -1,0 +1,8 @@
+{
+  "json.schemas": [
+    {
+      "fileMatch": ["**/atlas.json", "**/atlas.next.json"],
+      "url": "./schemas/atlas.schema.json"
+    }
+  ]
+}

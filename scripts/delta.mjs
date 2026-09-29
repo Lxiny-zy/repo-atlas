@@ -1,6 +1,6 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
-import { loadManifest, parseOptions, createSnapshot, assertOutputInside, writeJson } from './snapshot-lib.mjs';
+import { readFile } from 'node:fs/promises';
+import { loadManifest, parseOptions, createSnapshot, assertOutputInside, writeJson, assertBaselineWorkspace, snapshotHash, protectedSourcePaths } from './snapshot-lib.mjs';
+import { planOutput, atomicWrite } from './io-lib.mjs';
 
 const options = parseOptions(process.argv.slice(2));
 const manifestArg = options._[0];
@@ -12,12 +12,16 @@ if (!manifestArg || options.help) {
 const bundle = await loadManifest(manifestArg);
 const fromPath = assertOutputInside(bundle.workspace, options.from || '.repo-atlas/snapshot.json');
 const baseline = JSON.parse(await readFile(fromPath, 'utf8'));
+assertBaselineWorkspace(bundle, baseline);
 const current = await createSnapshot(bundle, baseline, { allowMissingSources: true });
+const protectedPaths = [...protectedSourcePaths(bundle, { ...baseline.files, ...current.files }), fromPath];
+const output = planOutput(bundle.workspace, options.output || '.repo-atlas/delta.json', { protectedPaths });
+const snapshotOutput = options['snapshot-output'];
+const snapshotPath = snapshotOutput ? planOutput(bundle.workspace, snapshotOutput, { protectedPaths: [...protectedPaths, output] }) : null;
 const oldFiles = baseline.files || {};
 const newFiles = current.files || {};
 
-// Pair equal hashes only among path additions/deletions. This keeps a rename
-// from being reported twice while avoiding guesses for rename-plus-edit cases.
+// A rename is inferred only when the hash has exactly one added and deleted path.
 const added = [];
 const deleted = [];
 const modified = [];
@@ -32,11 +36,14 @@ for (const path of [...allPaths].sort()) {
 
 const addedByHash = new Map();
 for (const change of added) (addedByHash.get(change.newSha256) || addedByHash.set(change.newSha256, []).get(change.newSha256)).push(change);
+const deletedByHash = new Map();
+for (const change of deleted) deletedByHash.set(change.oldSha256, (deletedByHash.get(change.oldSha256) || 0) + 1);
 const pairedAdded = new Set();
 const pairedDeleted = new Set();
 const changes = [];
 for (const oldChange of deleted) {
-  const candidate = (addedByHash.get(oldChange.oldSha256) || []).find(item => !pairedAdded.has(item.path));
+  const candidates = addedByHash.get(oldChange.oldSha256) || [];
+  const candidate = candidates.length === 1 && deletedByHash.get(oldChange.oldSha256) === 1 ? candidates[0] : null;
   if (!candidate) continue;
   pairedDeleted.add(oldChange.path);
   pairedAdded.add(candidate.path);
@@ -77,16 +84,16 @@ for (const [key, oldEvidence] of Object.entries(baselineEvidence)) {
   else if (!now.resolved) reason = now.staleReason || 'source anchor is missing or ambiguous';
   else if (now.fileSha256 !== oldEvidence.fileSha256) reason = 'source file changed';
   else if (now.excerptSha256 !== oldEvidence.excerptSha256) reason = 'source excerpt changed';
-  else if (now.path !== oldEvidence.path || now.match !== oldEvidence.match || now.occurrence !== oldEvidence.occurrence || now.length !== oldEvidence.length || (oldEvidence.redactSha256 != null && now.redactSha256 !== oldEvidence.redactSha256)) reason = 'evidence definition changed';
+  else if (now.definitionSha256 !== oldEvidence.definitionSha256 || now.redactSha256 !== oldEvidence.redactSha256) reason = 'evidence definition changed';
   if (reason) addStale(key, oldEvidence, now, reason);
 }
 for (const [key, now] of Object.entries(currentEvidence)) {
-  if (!baselineEvidence[key] && !now.resolved) addStale(key, null, now, now.staleReason || 'source anchor is missing or ambiguous');
+  if (!baselineEvidence[key]) addStale(key, null, now, now.staleReason || 'new evidence requires review');
 }
 
 const reusedEvidence = Object.entries(currentEvidence).filter(([key, now]) => {
   const old = baselineEvidence[key];
-  return Boolean(old && now.resolved && old.fileSha256 === now.fileSha256 && old.excerptSha256 === now.excerptSha256 && old.path === now.path && old.match === now.match && old.occurrence === now.occurrence && old.length === now.length && (old.redactSha256 == null || old.redactSha256 === now.redactSha256));
+  return Boolean(old && now.resolved && old.fileSha256 === now.fileSha256 && old.excerptSha256 === now.excerptSha256 && old.definitionSha256 === now.definitionSha256 && old.redactSha256 === now.redactSha256);
 }).length;
 const recomputedEvidence = Object.values(currentEvidence).filter(item => item.resolved).length - reusedEvidence;
 const manifestChanged = baseline.analysisManifestSha256 != null
@@ -95,7 +102,8 @@ const manifestChanged = baseline.analysisManifestSha256 != null
 const impacted = [...new Set([
   ...changes.flatMap(change => change.impact),
   ...staleEvidence.map(item => item.entity),
-  ...(manifestChanged ? Object.values(current.impactIndex || {}).flat() : [])
+  ...(manifestChanged ? Object.keys(current.summaryIndex || {}) : []),
+  ...staleEvidence.filter(item => item.entity.startsWith('chain-stage:')).map(item => `chain:${item.entity.slice('chain-stage:'.length).split('/')[0]}`)
 ])].sort();
 const modifiedCount = changes.filter(change => change.status === 'modified').length;
 const previousFileCount = Object.keys(oldFiles).length;
@@ -108,12 +116,15 @@ const fullReanalysisReasons = [
   ...(infrastructureChanges.length ? [`shared infrastructure changed (${infrastructureChanges.map(change => change.path).join(', ')})`] : [])
 ];
 const fullReanalysisRecommended = fullReanalysisReasons.length > 0;
+const unmappedChanges = changes.filter(change => !change.impact.length).map(change => ({ path: change.path, status: change.status, reason: 'No evidence or module ownership maps this change' }));
 const delta = {
-  schemaVersion: 1,
+  schemaVersion: 2,
+  workspaceSha256: current.workspaceSha256,
   generatedAt: new Date().toISOString(),
-  from: { path: options.from || '.repo-atlas/snapshot.json', generatedAt: baseline.generatedAt, git: baseline.git || null },
-  to: { git: current.git, manifestSha256: current.manifestSha256, analysisManifestSha256: current.analysisManifestSha256 },
+  from: { path: options.from || '.repo-atlas/snapshot.json', snapshotSha256: snapshotHash(baseline), generatedAt: baseline.generatedAt, git: baseline.git || null },
+  to: { git: current.git, manifestSha256: current.manifestSha256, analysisManifestSha256: current.analysisManifestSha256, inventorySha256: current.inventorySha256 },
   changes,
+  unmappedChanges,
   staleEvidence,
   impacted,
   summary: {
@@ -127,21 +138,17 @@ const delta = {
     recomputedEvidence,
     staleEvidence: staleEvidence.length,
     impactedEntities: impacted.length,
+    unmappedChanges: unmappedChanges.length,
+    reviewRequired: Boolean(impacted.length || unmappedChanges.length || fullReanalysisRecommended),
     manifestChanged,
     fullReanalysisRecommended,
     fullReanalysisReasons
   }
 };
 
-const snapshotOutput = options['snapshot-output'];
-if (snapshotOutput) {
-  const snapshotPath = assertOutputInside(bundle.workspace, snapshotOutput);
-  if (snapshotPath === fromPath) throw new Error('snapshot-output must differ from --from; baseline snapshots are never overwritten by delta.mjs');
-  await mkdir(dirname(snapshotPath), { recursive: true });
-  await writeFile(snapshotPath, writeJson(current), { encoding: 'utf8', flag: 'w' });
+if (snapshotPath) {
+  await atomicWrite(bundle.workspace, snapshotPath, writeJson(current), { protectedPaths: [...protectedPaths, output] });
   delta.currentSnapshotPath = snapshotOutput;
 }
-const output = assertOutputInside(bundle.workspace, options.output || '.repo-atlas/delta.json');
-await mkdir(dirname(output), { recursive: true });
-await writeFile(output, writeJson(delta), { encoding: 'utf8', flag: 'w' });
+await atomicWrite(bundle.workspace, output, writeJson(delta), { protectedPaths });
 console.log(JSON.stringify({ output, ...delta.summary, commit: current.git.shortCommit }, null, 2));

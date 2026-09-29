@@ -1,6 +1,6 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
-import { loadManifest, parseOptions, createSnapshot, assertOutputInside, writeJson } from './snapshot-lib.mjs';
+import { readFile } from 'node:fs/promises';
+import { loadManifest, parseOptions, createSnapshot, assertOutputInside, writeJson, protectedSourcePaths, assertBaselineWorkspace } from './snapshot-lib.mjs';
+import { planOutput, atomicWrite } from './io-lib.mjs';
 
 const options = parseOptions(process.argv.slice(2));
 const manifestArg = options._[0];
@@ -9,10 +9,14 @@ if (!manifestArg || options.help) {
   process.exit(options.help ? 0 : 2);
 }
 const bundle = await loadManifest(manifestArg);
-const output = assertOutputInside(bundle.workspace, options.output || '.repo-atlas/snapshot.json');
+const fromPath = options.from ? assertOutputInside(bundle.workspace, options.from) : null;
 let previous = null;
-if (options.from) previous = JSON.parse(await readFile(assertOutputInside(bundle.workspace, options.from), 'utf8'));
+if (fromPath) {
+  previous = JSON.parse(await readFile(fromPath, 'utf8'));
+  assertBaselineWorkspace(bundle, previous);
+}
 const snapshot = await createSnapshot(bundle, previous, { allowMissingSources: true });
-await mkdir(dirname(output), { recursive: true });
-await writeFile(output, writeJson(snapshot), { encoding: 'utf8', flag: 'w' });
+const protectedPaths = [...protectedSourcePaths(bundle, { ...previous?.files, ...snapshot.files }), ...(fromPath ? [fromPath] : [])];
+const output = planOutput(bundle.workspace, options.output || '.repo-atlas/snapshot.json', { protectedPaths });
+await atomicWrite(bundle.workspace, output, writeJson(snapshot), { protectedPaths });
 console.log(JSON.stringify({ output, ...snapshot.counts, commit: snapshot.git.shortCommit, dirty: snapshot.git.dirty }, null, 2));

@@ -3,8 +3,9 @@ import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
-const here = dirname(new URL(import.meta.url).pathname.replace(/^\/(?:[A-Za-z]:)/, match => match.slice(1)));
+const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '..');
 const fixture = resolve(repoRoot, 'tests/fixtures/multi-chain');
 const run = (cwd, script, ...args) => execFileSync(process.execPath, [resolve(repoRoot, 'scripts', script), ...args], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
@@ -23,7 +24,16 @@ try {
   run(workspace, 'delta.mjs', 'atlas.json');
   run(workspace, 'context.mjs', 'atlas.json', '--changed-only');
   run(workspace, 'context.mjs', 'atlas.json', '--stale-only', '--out', '.repo-atlas/stale-context.json');
+  run(workspace, 'refresh.mjs', 'atlas.json');
+  const candidate = JSON.parse(await readFile(resolve(workspace, 'atlas.next.json'), 'utf8'));
+  assert.equal(candidate.chains[0].reviewRequired, true);
+  assert.ok(candidate.chains[0].stages.some(stage => stage.reviewRequired));
   run(workspace, 'build.mjs', 'atlas.json');
+  const report = await readFile(resolve(workspace, 'report.html'), 'utf8');
+  const reportData = JSON.parse(report.match(/<script id="graph-data" type="application\/json">([\s\S]*?)<\/script>/)[1]);
+  assert.equal(reportData.stats.diagrams, 1, 'sequence view should not count as a rendered diagram');
+  assert.ok(reportData.views.some(view => view.kind === 'narrative' && view.chainIds?.includes('audit_order')), 'chain without a narrative view should receive one');
+  assert.equal(reportData.chains.find(chain => chain.id === 'audit_order').readingView, 'chain_audit_order');
 
   const delta = JSON.parse(await readFile(resolve(workspace, '.repo-atlas/delta.json'), 'utf8'));
   const context = JSON.parse(await readFile(resolve(workspace, '.repo-atlas/context.json'), 'utf8'));
@@ -40,5 +50,6 @@ try {
   assert.ok(staleContext.entities.every(entity => entity.stale));
   console.log(JSON.stringify({ ok: true, changedFiles: context.changedFiles.length, entities: context.entities.length, evidence: context.evidence.length }, null, 2));
 } finally {
+  assert.ok(workspace.startsWith(resolve(tmpdir(), 'repo-atlas-test-')));
   await rm(workspace, { recursive: true, force: true });
 }

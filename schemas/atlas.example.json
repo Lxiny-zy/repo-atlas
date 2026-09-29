@@ -1,0 +1,24 @@
+{
+  "$schema": "./atlas.schema.json",
+  "workspace": "../tests/fixtures/multi-chain",
+  "output": "example-report.html",
+  "project": {
+    "title": "订单入口 · 最小示例",
+    "scope": "仓库自带合成夹具中的订单入口。",
+    "boundary": "演示配置与证据定位；不表示真实业务已经审核。"
+  },
+  "modules": [{
+    "id": "api",
+    "name": "订单入口",
+    "summary": "接收订单输入并调用校验函数。",
+    "facts": ["入口代码位于夹具的 src/order.js。"],
+    "sources": [{ "id": "entry", "path": "src/order.js", "match": "export function createOrder", "length": 3 }]
+  }],
+  "views": [{
+    "id": "overview",
+    "title": "入口概览",
+    "kind": "narrative",
+    "modules": ["api"],
+    "notes": [["读取顺序", "打开订单入口模块，查看关联源码。"]]
+  }]
+}

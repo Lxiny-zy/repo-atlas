@@ -24,31 +24,17 @@
       <div class="sidebar-top"><span>模块图谱</span><button class="icon-button mobile-menu" id="close-nav" aria-label="关闭目录" title="关闭目录"><i data-lucide="x"></i></button></div>
       <label class="search-box"><i data-lucide="search"></i><input id="module-search" type="search" placeholder="搜索全部分析内容" aria-label="搜索全部分析内容"></label>
       <div id="search-results" class="search-results" hidden aria-live="polite"></div>
-      <nav id="view-nav" aria-label="关系图视图"></nav>
+      <nav id="view-nav" aria-label="分析视图"></nav>
       <div class="sidebar-foot"><div id="sidebar-stats"></div></div>
     </aside>
     <main id="main-content">
+      <p id="review-banner" class="review-banner" hidden role="status"></p>
       <section class="view-heading">
-        <div><div class="eyebrow" id="view-group"></div><h2 id="view-title"></h2><p id="view-subtitle"></p></div>
-        <div class="view-tags" id="view-tags"></div>
+        <div><button class="text-link overview-link" id="overview-link" hidden><i data-lucide="arrow-left"></i>项目总览</button><div class="eyebrow" id="view-group"></div><h2 id="view-title"></h2><p id="view-subtitle"></p></div>
+        <div><div class="view-tags" id="view-tags"></div><button class="text-link" id="copy-view-link" type="button">复制当前位置链接</button></div>
       </section>
-      <section class="summary-strip" aria-label="分析摘要">
-        <div class="summary-metric"><span>职责模块</span><strong id="stat-modules">0</strong></div>
-        <div class="summary-metric"><span>关系视图</span><strong id="stat-diagrams">0</strong></div>
-        <button class="summary-metric summary-action" id="open-chains" type="button"><span>业务链路</span><strong id="stat-chains">0</strong><i data-lucide="arrow-up-right"></i></button>
-        <button class="summary-metric summary-action" id="open-findings" type="button"><span>关键发现</span><strong id="stat-findings">0</strong><i data-lucide="arrow-up-right"></i></button>
-        <button class="summary-metric summary-action" id="open-coverage" type="button"><span>覆盖维度</span><strong id="stat-coverage">0</strong><i data-lucide="arrow-up-right"></i></button>
-        <div class="summary-metric"><span>证据锚点</span><strong id="stat-evidence">0</strong></div>
-        <div class="summary-metric"><span>索引文件</span><strong id="stat-files">0</strong></div>
-      </section>
-      <section class="chain-section" id="chain-section" hidden>
-        <div class="section-heading"><h3>业务链路目录</h3><div class="chain-heading-tools"><span id="chain-count"></span><label class="compact-select"><span class="sr-only">筛选业务链路</span><select id="chain-filter" aria-label="筛选业务链路"><option value="all">全部链路</option><option value="review">待复核</option><option value="incomplete">覆盖不完整</option><option value="covered">已覆盖</option></select></label></div></div>
-        <p class="section-lead">每条链路按阶段绑定源码证据；点击链路可查看阶段覆盖、关联视图和待确认项。</p>
-        <div class="chain-grid" id="chain-grid"></div>
-      </section>
-      <section class="quality-section" id="quality-section" hidden>
-        <div class="quality-heading"><i data-lucide="shield-alert"></i><div><h3>交付完整度提醒</h3><p>以下提醒不代表代码质量问题，而是提示本次分析的链路或视图证据可能不足。</p></div></div>
-        <ul id="quality-list"></ul>
+      <section class="project-intro" id="project-intro" hidden aria-label="项目与分析范围">
+        <p id="project-summary"></p><p class="project-scope" id="project-scope"></p>
       </section>
       <section class="graph-section" id="graph-section" aria-label="关系图画布">
         <div class="graph-toolbar">
@@ -72,13 +58,15 @@
         </div>
         <div class="graph-caption"><span id="diagram-kind"></span><span id="diagram-counter"></span></div>
       </section>
-      <section class="facts-band" id="view-notes" aria-label="关键关系说明"></section>
-      <section class="module-section" id="module-section">
-        <div class="section-heading"><h3>关联模块</h3><span id="module-count"></span></div>
-        <div class="module-list" id="module-list"></div>
-        <div class="module-detail" id="module-detail" hidden></div>
+      <section class="sequence-section" id="sequence-section" hidden aria-label="流程说明">
+        <div class="section-heading"><h3>流程说明</h3><span id="sequence-count"></span></div>
+        <p class="section-lead" id="sequence-intro"></p>
+        <div class="sequence-list" id="sequence-list"></div>
       </section>
-      <section class="alias-section" id="alias-section" hidden><div class="section-heading"><h3>图中对象与实际名称</h3><span>关联语义见图例和说明</span></div><div class="alias-list" id="alias-list"></div></section>
+      <section class="findings-section" id="findings-section" hidden>
+        <div class="section-heading"><h3>关键发现</h3><button class="text-link" id="all-findings">查看全部发现</button></div>
+        <div class="finding-highlights" id="finding-highlights"></div>
+      </section>
       <section class="catalog-section" id="catalog-section" hidden>
         <div class="section-heading"><h3>证据索引</h3><span id="catalog-count"></span></div>
         <div class="catalog-controls">
@@ -86,12 +74,39 @@
           <label class="search-box"><i data-lucide="search"></i><input id="catalog-search" type="search" placeholder="筛选当前索引" aria-label="筛选当前索引"></label>
         </div>
         <div class="table-scroll"><table><thead id="catalog-head"></thead><tbody id="catalog-body"></tbody></table></div>
+        <nav class="pagination" id="catalog-pages" aria-label="证据索引分页" hidden></nav>
+      </section>
+      <section class="facts-band" id="view-notes" aria-label="关键关系说明"></section>
+      <section class="module-section" id="module-section">
+        <div class="section-heading"><h3>关联模块</h3><span id="module-count"></span></div>
+        <div class="module-list" id="module-list"></div>
+        <div class="module-detail" id="module-detail" hidden></div>
+      </section>
+      <section class="alias-section" id="alias-section" hidden><div class="section-heading"><h3>图中对象与实际名称</h3><span>关联语义见图例和说明</span></div><div class="alias-list" id="alias-list"></div></section>
+      <section class="chain-section" id="chain-section" hidden>
+        <div class="section-heading"><h3>业务链路目录</h3><div class="chain-heading-tools"><span id="chain-count"></span><label class="compact-select"><span class="sr-only">筛选业务链路</span><select id="chain-filter" aria-label="筛选业务链路"><option value="all">全部链路</option><option value="review">待复核</option><option value="incomplete">覆盖不完整</option><option value="covered">已覆盖</option></select></label></div></div>
+        <p class="section-lead">选择一条链路，阅读处理阶段、结果与待确认项。</p>
+        <div class="chain-grid" id="chain-grid"></div>
+        <nav class="pagination" id="chain-pages" aria-label="业务链路分页" hidden></nav>
+      </section>
+      <details class="quality-section" id="quality-section" hidden>
+        <summary>分析完整度提醒 <span id="quality-count"></span></summary>
+        <ul id="quality-list"></ul>
+      </details>
+      <section class="summary-strip" id="summary-strip" aria-label="分析规模">
+        <div class="summary-metric"><span>职责模块</span><strong id="stat-modules">0</strong></div>
+        <div class="summary-metric"><span>关系视图</span><strong id="stat-diagrams">0</strong></div>
+        <button class="summary-metric summary-action" id="open-chains" type="button"><span>业务链路</span><strong id="stat-chains">0</strong><i data-lucide="arrow-up-right"></i></button>
+        <button class="summary-metric summary-action" id="open-findings" type="button"><span>关键发现</span><strong id="stat-findings">0</strong><i data-lucide="arrow-up-right"></i></button>
+        <button class="summary-metric summary-action" id="open-coverage" type="button"><span>覆盖维度</span><strong id="stat-coverage">0</strong><i data-lucide="arrow-up-right"></i></button>
+        <div class="summary-metric"><span>证据锚点</span><strong id="stat-evidence">0</strong></div>
+        <div class="summary-metric"><span>索引文件</span><strong id="stat-files">0</strong></div>
       </section>
       <footer class="report-footer"><span id="footer-boundary"></span><span id="footer-baseline"></span></footer>
     </main>
   </div>
   <dialog id="detail-dialog" aria-labelledby="dialog-title">
-    <header class="dialog-heading"><h3 id="dialog-title"></h3><button class="icon-button" id="close-dialog" title="关闭" aria-label="关闭"><i data-lucide="x"></i></button></header>
+    <header class="dialog-heading"><button class="icon-button" id="dialog-back" title="返回上一级" aria-label="返回上一级" hidden><i data-lucide="arrow-left"></i></button><h3 id="dialog-title" tabindex="-1"></h3><button class="icon-button" id="copy-detail-link" title="复制详情链接" aria-label="复制详情链接" hidden><i data-lucide="link"></i></button><button class="icon-button" id="close-dialog" title="关闭" aria-label="关闭"><i data-lucide="x"></i></button></header>
     <div id="dialog-body" class="dialog-body"></div>
   </dialog>
   <div class="toast" id="toast" role="status" hidden></div>

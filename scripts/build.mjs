@@ -1,17 +1,25 @@
-import { readFile, readdir, writeFile, realpath, mkdir, stat } from 'node:fs/promises';
+import { readFile, readdir, realpath, stat } from 'node:fs/promises';
 import { dirname, resolve, relative, isAbsolute, sep, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
+import { createReadStream } from 'node:fs';
+import { normalizeSource, sourceReader, resolveEvidence, redactionValues, redactValue } from './evidence-lib.mjs';
+import { planOutput, atomicWrite } from './io-lib.mjs';
+import { collectSourceRows, createSnapshot, analysisManifestHash } from './snapshot-lib.mjs';
+import { assertManifest } from './manifest-lib.mjs';
+
 const here = dirname(fileURLToPath(import.meta.url));
 const input = process.argv[2];
 const replace = process.argv.includes('--replace');
+const reviewMode = process.argv.includes('--review');
 if (!input || input.startsWith('--')) {
-  console.error('Usage: node build.mjs <atlas.json> [--replace]');
+  console.error('Usage: node build.mjs <atlas.json> [--replace] [--review]');
   process.exit(2);
 }
 const manifestPath = resolve(input);
 const manifest = JSON.parse((await readFile(manifestPath, 'utf8')).replace(/^\uFEFF/, ''));
+assertManifest(manifest);
 const requireText = (value, context) => {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${context} must be a nonempty string`);
   return value;
@@ -26,51 +34,44 @@ const inside = (root, path) => {
   return rel === '' || (!isAbsolute(rel) && rel !== '..' && !rel.startsWith('..' + sep));
 };
 const workspace = await realpath(resolve(dirname(manifestPath), requireText(manifest.workspace, 'workspace')));
-const output = resolve(workspace, requireText(manifest.output, 'output'));
-if (!inside(workspace, output) || extname(output).toLowerCase() !== '.html') throw new Error('output must be an HTML file within workspace');
-// Check existing ancestors before mkdir/write so a symlink cannot redirect output.
-let ancestor = dirname(output);
-for (;;) {
-  try {
-    if (!inside(workspace, await realpath(ancestor))) throw new Error('output ancestor escapes workspace');
-    break;
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw error;
-    ancestor = dirname(ancestor);
-  }
+const protectedPaths = [manifestPath, ...collectSourceRows(manifest).map(source => resolve(workspace, source.path))];
+const output = planOutput(workspace, requireText(manifest.output, 'output'), { extension: '.html', replace, protectedPaths });
+if (manifest.review && !manifest.update) {
+  const current = await createSnapshot({ manifestPath, manifest, workspace, raw: JSON.stringify(manifest) }, null, { allowMissingSources: true });
+  if (current.inventorySha256 !== manifest.review.binding?.inventorySha256 || analysisManifestHash(manifest) !== manifest.review.binding?.analysisManifestSha256 || current.workspaceSha256 !== manifest.review.binding?.workspaceSha256) throw new Error('Reviewed version drift; refresh and review before rebuilding an accepted report');
 }
-try {
-  const existing = await realpath(output);
-  if (!inside(workspace, existing)) throw new Error('output escapes workspace');
-  if (!replace) throw new Error('Output already exists. Use --replace only when updating this report is authorized.');
-} catch (error) { if (error.code !== 'ENOENT') throw error; }
 
 async function checkedPath(value) {
   requireText(value, 'source path');
   if (isAbsolute(value) || /^[A-Za-z]:/.test(value) || value.includes('\\')) throw new Error(`Use a workspace-relative path with /: ${value}`);
-  const full = await realpath(resolve(workspace, value));
+  const requested = resolve(workspace, value);
+  if (!inside(workspace, requested)) throw new Error(`Source escapes workspace: ${value}`);
+  const full = await realpath(requested);
   if (!inside(workspace, full)) throw new Error(`Source escapes workspace: ${value}`);
   return full;
 }
-const cache = new Map();
-async function read(path) {
-  if (!cache.has(path)) cache.set(path, await readFile(await checkedPath(path), 'utf8'));
-  return cache.get(path);
-}
+const read = sourceReader(checkedPath);
+const secrets = redactionValues(collectSourceRows(manifest));
+let unresolvedCount = 0;
 async function evidence(spec) {
-  const lines = (await read(requireText(spec.path, 'source.path'))).split(/\r?\n/);
-  const needle = requireText(spec.match, `source.match in ${spec.path}`);
-  const matches = lines.flatMap((line, index) => line.includes(needle) ? [index] : []);
-  if (!matches.length) throw new Error(`Missing evidence anchor: ${spec.path} :: ${needle}`);
-  if (matches.length > 1 && spec.occurrence == null) throw new Error(`Ambiguous evidence anchor (${matches.length} matches): ${spec.path} :: ${needle}. Set occurrence or use a unique anchor.`);
-  const occurrence = spec.occurrence ?? 1;
-  if (!Number.isInteger(occurrence) || occurrence < 1 || occurrence > matches.length) throw new Error(`Invalid evidence occurrence: ${spec.path}`);
-  const count = spec.length ?? 8;
-  if (!Number.isInteger(count) || count < 1 || count > 60) throw new Error('Evidence length must be 1..60 lines');
-  const start = matches[occurrence - 1];
-  let excerpt = lines.slice(start, start + count).join('\n');
-  for (const secret of spec.redact || []) excerpt = excerpt.split(requireText(secret, 'redact value')).join('[已隐去]');
-  return { path: spec.path, line: start + 1, excerpt };
+  const source = normalizeSource(spec);
+  let result;
+  try { result = resolveEvidence((await read(source.path)).document, { ...source, redact: secrets }); }
+  catch (error) {
+    if (!reviewMode || !['ENOENT', 'ENOTDIR'].includes(error.code)) throw error;
+    result = { resolved: false, reason: 'Source file missing' };
+  }
+  if (!result.resolved) {
+    if (!reviewMode) throw new Error(`${result.reason}: ${source.path}`);
+    unresolvedCount++;
+    return { path: source.path, sourceId: source.id, line: null, excerpt: null, state: 'unresolved', reason: result.reason };
+  }
+  return { path: source.path, sourceId: source.id, line: result.line, excerpt: result.text, state: 'resolved' };
+}
+async function lineCount(full) {
+  let lines = 1;
+  for await (const chunk of createReadStream(full)) for (const byte of chunk) if (byte === 10) lines++;
+  return lines;
 }
 const identifiers = new Set();
 const freshnessFields = row => ({
@@ -89,6 +90,7 @@ requireText(project.title, 'project.title');
 requireText(project.scope, 'project.scope');
 requireText(project.boundary, 'project.boundary');
 if (project.subtitle != null) requireText(project.subtitle, 'project.subtitle');
+if (project.summary != null) requireText(project.summary, 'project.summary');
 const modules = await Promise.all(requireList(manifest.modules, 'modules').map(async module => {
   uniqueId(module.id, 'module');
   requireText(module.name, 'module.name');
@@ -114,13 +116,16 @@ const inferViewKind = diagram => {
   if (/^\s*(flowchart|graph)\s/.test(value)) return 'flow';
   return 'custom';
 };
-const viewKinds = new Set(['overview', 'flow', 'sequence', 'state', 'data', 'deployment', 'recovery', 'dependency', 'mindmap', 'custom']);
-const views = await Promise.all(requireList(manifest.views, 'views').map(async view => {
+const viewKinds = new Set(['overview', 'flow', 'narrative', 'sequence', 'state', 'data', 'deployment', 'recovery', 'dependency', 'mindmap', 'custom']);
+const views = await Promise.all(requireList(manifest.views || [], 'views').map(async view => {
   uniqueId(view.id, 'view');
   if (view.id === 'catalog') throw new Error('catalog is reserved for the generated index');
   requireText(view.title, 'view.title');
-  requireText(view.diagram, 'view.diagram');
-  const kind = view.kind || inferViewKind(view.diagram);
+  if (view.kind !== 'narrative') requireText(view.diagram, 'view.diagram');
+  else if (view.diagram != null) requireText(view.diagram, 'view.diagram');
+  const inferredKind = inferViewKind(view.diagram || '');
+  // Legacy sequence views remain addressable, but never reach the SVG renderer.
+  const kind = inferredKind === 'sequence' ? 'sequence' : view.kind || inferredKind;
   if (!viewKinds.has(kind)) throw new Error(`Invalid view.kind in ${view.id}: ${kind}`);
   if (view.mobileDiagram != null) requireText(view.mobileDiagram, `view.mobileDiagram in ${view.id}`);
   for (const id of requireList(view.modules, 'view.modules')) if (!moduleIds.has(id)) throw new Error(`Unknown module in view ${view.id}: ${id}`);
@@ -135,12 +140,12 @@ const views = await Promise.all(requireList(manifest.views, 'views').map(async v
   const theme = diagram => /^\s*(flowchart|graph)\s/.test(diagram) && view.useDefaultClasses !== false ? diagram + '\n' + flowClasses : diagram;
   return {
     id: view.id, title: view.title, subtitle: view.subtitle || '', icon: view.icon || 'network', group: view.group || '项目图谱',
-    kind, tags, diagram: theme(view.diagram), mobileDiagram: view.mobileDiagram ? theme(view.mobileDiagram) : undefined,
+    kind, tags, diagram: kind === 'narrative' ? undefined : theme(view.diagram),
+    mobileDiagram: !['sequence', 'narrative'].includes(kind) && view.mobileDiagram && inferViewKind(view.mobileDiagram) !== 'sequence' ? theme(view.mobileDiagram) : undefined,
     modules: view.modules, notes, aliases: Object.keys(aliases).length ? aliases : undefined, legend: legend.length ? legend : undefined, ...freshnessFields(view),
     sources: await Promise.all(requireList(view.sources || [], `view.sources in ${view.id}`).map(evidence))
   };
 }));
-if (!views.length) throw new Error('At least one diagram is required');
 const viewIds = new Set(views.map(view => view.id));
 const chainStatuses = new Set(['covered', 'partial', 'unknown', 'not_applicable']);
 const chainStageKinds = new Set(['entry', 'authorization', 'validation', 'orchestration', 'read', 'write', 'side_effect', 'publication', 'consume', 'outcome', 'recovery', 'custom']);
@@ -152,14 +157,14 @@ const chains = await Promise.all(requireList(manifest.chains || [], 'chains').ma
   requireText(chain.outcome, 'chain.outcome');
   const related = requireList(chain.modules || [], `chain.modules in ${chain.id}`);
   for (const id of related) if (!moduleIds.has(id)) throw new Error(`Unknown module in chain ${chain.id}: ${id}`);
-  const chainViews = requireList(chain.views || [], `chain.views in ${chain.id}`);
+  const chainViews = [...requireList(chain.views || [], `chain.views in ${chain.id}`)];
   for (const id of chainViews) if (!viewIds.has(id)) throw new Error(`Unknown view in chain ${chain.id}: ${id}`);
   const stages = requireList(chain.stages, `chain.stages in ${chain.id}`);
   if (stages.length < 3) throw new Error(`Chain ${chain.id} must contain at least 3 stages`);
   const stageIds = new Set();
   const normalizedStages = await Promise.all(stages.map(async stage => {
     requireText(stage.id, `chain stage.id in ${chain.id}`);
-    uniqueId(`${chain.id}__${stage.id}`, 'chain-stage');
+    uniqueId(stage.id, `chain-stage:${chain.id}`);
     if (stageIds.has(stage.id)) throw new Error(`Duplicate chain stage in ${chain.id}: ${stage.id}`);
     stageIds.add(stage.id);
     requireText(stage.label, `chain stage.label in ${chain.id}`);
@@ -171,12 +176,32 @@ const chains = await Promise.all(requireList(manifest.chains || [], 'chains').ma
     const sources = await Promise.all(requireList(stage.sources || [], `chain stage.sources in ${chain.id}/${stage.id}`).map(evidence));
     if (['covered', 'partial'].includes(stage.status) && !sources.length) throw new Error(`Chain stage ${chain.id}/${stage.id} requires evidence`);
     if (stage.status === 'unknown' && !stage.nextCheck) throw new Error(`Unknown chain stage ${chain.id}/${stage.id} must provide nextCheck`);
-    return { id: stage.id, kind: stage.kind || 'custom', label: stage.label, status: stage.status, summary: stage.summary, nextCheck: stage.nextCheck || '', modules: stageModules, sources };
+    return { id: stage.id, kind: stage.kind || 'custom', label: stage.label, status: stage.status, summary: stage.summary, nextCheck: stage.nextCheck || '', modules: stageModules, ...freshnessFields(stage), sources };
   }));
   const sources = await Promise.all(requireList(chain.sources, `chain.sources in ${chain.id}`).map(evidence));
   if (!sources.length) throw new Error(`No evidence for chain ${chain.id}`);
   return { id: chain.id, title: chain.title, kind: chain.kind || '业务链路', summary: chain.summary, trigger: chain.trigger, outcome: chain.outcome, modules: related, views: chainViews, stages: normalizedStages, ...freshnessFields(chain), sources };
 }));
+for (const chain of chains) {
+  let readingView = views.find(view => ['sequence', 'narrative'].includes(view.kind) && chain.views.includes(view.id));
+  if (!readingView) {
+    let id = `chain_${chain.id.slice(0, 56)}`;
+    while (viewIds.has(id)) id = `${id.slice(0, 63)}_`;
+    viewIds.add(id);
+    readingView = { id, title: chain.title, subtitle: chain.summary, group: '业务流程', icon: 'list-ordered', kind: 'narrative', tags: [], modules: chain.modules, notes: [], sources: [] };
+    views.push(readingView);
+  }
+  chain.readingView = readingView.id;
+  if (!chain.views.includes(readingView.id)) chain.views.push(readingView.id);
+  for (const view of views.filter(view => ['sequence', 'narrative'].includes(view.kind) && chain.views.includes(view.id))) {
+    view.chainIds ||= [];
+    view.chainIds.push(chain.id);
+  }
+}
+if (!views.length && !chains.length) throw new Error('At least one view or business chain is required');
+// A legacy sequence view can use existing notes when no chain is available.
+// Surface the evidence gap; do not invent a narrative by translating arrows.
+const incompleteNarratives = views.filter(view => ['sequence', 'narrative'].includes(view.kind) && !view.chainIds?.length && !view.notes.length);
 const evidenceRows = async (rows, kind) => Promise.all(requireList(rows || [], kind).map(async row => {
   const identity = kind === 'routes' ? row.prefix : row.name;
   requireText(identity, `${kind} identifier`);
@@ -239,7 +264,9 @@ for (const group of requireList(manifest.fileGroups || [], 'fileGroups')) {
   const visited = new Set();
   let found = 0;
   async function visit(path) {
-    const full = await checkedPath(path);
+    let full;
+    try { full = await checkedPath(path); }
+    catch (error) { if (reviewMode && ['ENOENT', 'ENOTDIR'].includes(error.code)) return; throw error; }
     if (visited.has(full)) return;
     visited.add(full);
     const info = await stat(full);
@@ -251,8 +278,8 @@ for (const group of requireList(manifest.fileGroups || [], 'fileGroups')) {
     } else if (info.isFile() && extensions.includes(extname(path).toLowerCase())) {
       if (listed.has(full)) return;
       listed.add(full);
-      const lines = (await read(path)).split(/\r?\n/);
-      files.push({ path, name: path.split('/').pop(), group: group.name, line: 1, lines: lines.length });
+      protectedPaths.push(full);
+      files.push({ path, name: path.split('/').pop(), group: group.name, line: 1, lines: await lineCount(full) });
       found++;
     }
   }
@@ -269,28 +296,49 @@ for (const repo of requireList(manifest.repositories || [], 'repositories')) {
   repositories.push({ name: repo.name || repo.path, path: repo.path, commit: git(['rev-parse', '--short=8', 'HEAD']), branch: git(['branch', '--show-current']) || '(detached HEAD)', dirty: git(['status', '--short', '--untracked-files=no']).split(/\r?\n/).filter(Boolean) });
 }
 views.push({ id: 'catalog', title: '证据与覆盖索引', subtitle: '集中查看发现项、分析覆盖、对象、入口、配置和源码文件。', icon: 'list-tree', group: '证据', tags: ['可追溯索引'], modules: modules.map(module => module.id), notes: [['分析范围', project.scope], ['验证边界', project.boundary]], sources: [] });
-const diagramViews = views.filter(view => view.diagram);
+// Sequence diagrams are retained as source evidence, but the report presents
+// their linked chain stages as readable prose instead of rendering a dense
+// Mermaid canvas.
+const diagramViews = views.filter(view => view.diagram && !['sequence', 'narrative'].includes(view.kind));
 const qualityWarnings = [];
+for (const view of incompleteNarratives) qualityWarnings.push(`流程“${view.title}”缺少文字说明；请补充业务阶段或视图备注。`);
 if (modules.length >= 8 && !chains.length) qualityWarnings.push('模块数量较多但没有登记业务链路；复杂项目容易退化为一张总览图。');
-if (modules.length >= 8 && diagramViews.length < 3) qualityWarnings.push('复杂范围只有少量关系图；建议补充专属时序、状态、数据或失败恢复视图。');
-for (const chain of chains) if (!chain.views.length) qualityWarnings.push(`链路“${chain.title}”没有关联关系图，阶段证据无法通过视图复核。`);
 for (const chain of chains) {
   if (chain.stages.some(stage => stage.kind === 'custom')) qualityWarnings.push(`链路“${chain.title}”存在未分类阶段；建议标注 entry、validation、write、side_effect、outcome 或 recovery 以便横向比较。`);
   if (chain.stages.some(stage => !chainStageKinds.has(stage.kind))) qualityWarnings.push(`链路“${chain.title}”使用了非标准阶段类型；建议迁移到稳定语义词表，保留自定义类型时请在清单中说明。`);
   if (chain.stages[0]?.kind && !['entry', 'authorization', 'validation'].includes(chain.stages[0].kind)) qualityWarnings.push(`链路“${chain.title}”的首阶段不是入口或校验阶段：${chain.stages[0].kind}。`);
   if (chain.stages.at(-1)?.kind && !['outcome', 'recovery', 'custom'].includes(chain.stages.at(-1).kind)) qualityWarnings.push(`链路“${chain.title}”的末阶段未标记为 outcome 或 recovery：${chain.stages.at(-1).kind}。`);
   const linkedViews = chain.views.map(id => views.find(view => view.id === id)).filter(Boolean);
-  if (linkedViews.length && !linkedViews.some(view => view.kind === 'sequence')) qualityWarnings.push(`链路“${chain.title}”缺少时序图，入口到结果的调用顺序无法单独复核。`);
   const linkedModules = new Set(linkedViews.flatMap(view => view.modules));
   for (const moduleId of chain.modules) if (linkedViews.length && !linkedModules.has(moduleId)) qualityWarnings.push(`链路“${chain.title}”的模块未全部出现在关联视图中：${moduleId}`);
 }
 const quality = { level: qualityWarnings.length ? 'review' : 'ready', warnings: qualityWarnings };
+if (unresolvedCount) { quality.level = 'review'; quality.warnings.push(`${unresolvedCount} 处证据未解析；此报告仅用于复核。`); }
+function markUnresolved(row) {
+  if (!row.sources.some(source => source.state === 'unresolved')) return;
+  row.freshness = 'unresolved'; row.reviewRequired = true;
+  if (['covered', 'partial', 'confirmed'].includes(row.status)) {
+    row.declaredStatus = row.status;
+    row.status = row.status === 'confirmed' ? 'unverified' : 'unknown';
+  }
+}
+for (const [kind, rows, field] of [['module', modules, 'id'], ['view', views, 'id'], ['chain', chains, 'id'], ['finding', findings, 'id'], ['coverage', coverage, 'id'], ['table', tables, 'name'], ['route', routes, 'prefix'], ['flag', flags, 'name']]) {
+  for (const row of rows) {
+    row.sources.forEach((source, index) => { source.key = `${kind}:${row[field]}:${source.sourceId ?? index}`; });
+    markUnresolved(row);
+    if (kind === 'chain') for (const stage of row.stages) {
+      stage.sources.forEach((source, index) => { source.key = `chain:${row.id}/${stage.id}:${source.sourceId ?? index}`; });
+      markUnresolved(stage);
+    }
+  }
+}
 const evidenceCount = [
   ...modules, ...views, ...chains, ...chains.flatMap(chain => chain.stages), ...tables, ...routes, ...flags, ...findings, ...coverage
 ].reduce((sum, item) => sum + (item.sources?.length || 0), 0);
 const data = {
-  project: { title: project.title, subtitle: project.subtitle || 'REPOSITORY ATLAS', scope: project.scope, boundary: project.boundary },
+  project: { title: project.title, subtitle: project.subtitle || 'REPOSITORY ATLAS', summary: project.summary || '', scope: project.scope, boundary: project.boundary },
   date: new Date().toISOString().slice(0, 10),
+  reviewMode, unresolvedCount, review: manifest.review || null,
   renderer: 'Mermaid 10.9.3', modules, views, chains, findings, coverage, tables, routes, flags, files, repositories, scanGroups, quality,
   update: manifest.update && typeof manifest.update === 'object' ? {
     mode: manifest.update.mode || 'incremental-candidate',
@@ -300,12 +348,13 @@ const data = {
     summary: manifest.update.summary || null,
     impacted: Array.isArray(manifest.update.impacted) ? manifest.update.impacted : [],
     staleEvidence: Array.isArray(manifest.update.staleEvidence) ? manifest.update.staleEvidence : [],
+    unmappedChanges: Array.isArray(manifest.update.unmappedChanges) ? manifest.update.unmappedChanges : [],
     reviewRequired: Boolean(manifest.update.reviewRequired)
   } : null,
   sourceBase: (slash(relative(dirname(output), workspace)) || '.') + '/',
   stats: {
     modules: modules.length, chains: chains.length, findings: findings.length, coverage: coverage.length, evidence: evidenceCount,
-    tables: tables.length, files: files.length, routes: routes.length, diagrams: views.filter(view => view.diagram).length
+    tables: tables.length, files: files.length, routes: routes.length, diagrams: diagramViews.length
   },
   extraLinks: []
 };
@@ -317,9 +366,8 @@ const replacements = {
   '/* INLINE_MERMAID */': safeScript(mermaid),
   '/* INLINE_ICONS */': safeScript(icons),
   '/* INLINE_APP */': safeScript(app),
-  DATA_JSON: JSON.stringify(data).replaceAll('<', '\\u003c').replaceAll('>', '\\u003e').replaceAll('&', '\\u0026')
+  DATA_JSON: JSON.stringify(redactValue(data, secrets)).replaceAll('<', '\\u003c').replaceAll('>', '\\u003e').replaceAll('&', '\\u0026')
 };
 const html = template.replace(/\/\* INLINE_(?:STYLE|MERMAID|ICONS|APP) \*\/|DATA_JSON/g, match => replacements[match]);
-await mkdir(dirname(output), { recursive: true });
-await writeFile(output, html, { encoding: 'utf8', flag: replace ? 'w' : 'wx' });
+await atomicWrite(workspace, output, html, { extension: '.html', replace, protectedPaths });
 console.log(JSON.stringify({ output, bytes: Buffer.byteLength(html), ...data.stats, repositories: repositories.map(repo => ({ name: repo.name, commit: repo.commit })) }, null, 2));

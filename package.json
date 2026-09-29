@@ -16,12 +16,16 @@
     "node": ">=18"
   },
   "scripts": {
+    "validate": "node scripts/validate.mjs",
     "build": "node scripts/build.mjs",
     "snapshot": "node scripts/snapshot.mjs",
     "delta": "node scripts/delta.mjs",
     "context": "node scripts/context.mjs",
     "refresh": "node scripts/refresh.mjs",
+    "review": "node scripts/review.mjs",
+    "accept": "node scripts/accept.mjs",
     "verify": "node scripts/verify.mjs",
-    "test": "node scripts/test.mjs"
+    "benchmark": "node scripts/benchmark.mjs",
+    "test": "node --test tests/manifest.test.mjs tests/incremental.test.mjs tests/review.test.mjs && node scripts/test.mjs"
   }
 }

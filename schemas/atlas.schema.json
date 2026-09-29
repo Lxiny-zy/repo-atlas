@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Repo Atlas manifest",
+  "description": "源码图谱清单。字段和条件约束由编辑器检查；引用、真实路径和源码锚点由 validate.mjs 检查。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["workspace", "output", "project", "modules"],
+  "properties": {
+    "$schema": { "type": "string", "description": "编辑器使用的 Schema 路径；CLI 始终使用随工具分发的本地 Schema，不读取此地址。" },
+    "workspace": { "$ref": "#/$defs/text", "description": "相对清单所在目录的工作区路径，也可为绝对路径。" },
+    "output": { "$ref": "#/$defs/text", "pattern": "\\.[hH][tT][mM][lL]$", "description": "工作区内 HTML 输出位置。" },
+    "project": {
+      "type": "object", "additionalProperties": false,
+      "required": ["title", "scope", "boundary"],
+      "properties": {
+        "title": { "$ref": "#/$defs/text" }, "subtitle": { "$ref": "#/$defs/text" },
+        "summary": { "$ref": "#/$defs/text" }, "scope": { "$ref": "#/$defs/text" }, "boundary": { "$ref": "#/$defs/text" }
+      }
+    },
+    "modules": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/module" } },
+    "views": { "type": "array", "items": { "$ref": "#/$defs/view" } },
+    "chains": { "type": "array", "items": { "$ref": "#/$defs/chain" } },
+    "findings": { "type": "array", "items": { "$ref": "#/$defs/finding" } },
+    "coverage": { "type": "array", "items": { "$ref": "#/$defs/coverage" } },
+    "tables": { "type": "array", "items": { "$ref": "#/$defs/table" } },
+    "routes": { "type": "array", "items": { "$ref": "#/$defs/route" } },
+    "flags": { "type": "array", "items": { "$ref": "#/$defs/flag" } },
+    "repositories": { "type": "array", "items": { "$ref": "#/$defs/repository" } },
+    "fileGroups": { "type": "array", "items": { "$ref": "#/$defs/fileGroup" } },
+    "update": { "type": "object", "description": "增量工具维护的候选状态；内部字段由增量工作流核验。" },
+    "review": { "type": "object", "description": "接受工具维护的审核记录；Schema 通过不代表审核通过。" }
+  },
+  "anyOf": [
+    { "required": ["views"], "properties": { "views": { "minItems": 1 } } },
+    { "required": ["chains"], "properties": { "chains": { "minItems": 1 } } }
+  ],
+  "$defs": {
+    "text": { "type": "string", "pattern": "\\S" },
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{0,63}$" },
+    "path": { "$ref": "#/$defs/text", "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\u0000]+$", "description": "工作区相对路径，使用 /，不含 ..；链接边界由 CLI 检查。" },
+    "ids": { "type": "array", "items": { "$ref": "#/$defs/id" } },
+    "texts": { "type": "array", "items": { "$ref": "#/$defs/text" } },
+    "sources": { "type": "array", "items": { "$ref": "#/$defs/source" } },
+    "source": {
+      "type": "object", "additionalProperties": false, "required": ["path", "match"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id", "description": "同一实体内唯一的稳定证据 ID。" },
+        "path": { "$ref": "#/$defs/path" }, "match": { "$ref": "#/$defs/text", "description": "源码中的字面锚点，不是正则表达式。" },
+        "length": { "type": "integer", "minimum": 1, "maximum": 60, "default": 8 },
+        "occurrence": { "type": "integer", "minimum": 1, "description": "重复锚点选第几次出现，从 1 开始。" },
+        "redact": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "需要从公开产物中遮盖的字面值。" }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "properties": {
+        "freshness": { "enum": ["fresh", "stale", "unresolved", "historical"] },
+        "reviewRequired": { "type": "boolean" }, "staleReason": { "type": "string" }
+      }
+    },
+    "module": {
+      "type": "object", "unevaluatedProperties": false, "allOf": [{ "$ref": "#/$defs/runtime" }],
+      "required": ["id", "name", "summary", "facts", "sources"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "name": { "$ref": "#/$defs/text" }, "summary": { "$ref": "#/$defs/text" },
+        "category": { "$ref": "#/$defs/text" }, "icon": { "$ref": "#/$defs/text" },
+        "facts": { "$ref": "#/$defs/texts" }, "links": { "$ref": "#/$defs/ids" },
+        "paths": { "type": "array", "items": { "$ref": "#/$defs/path" }, "description": "模块归属路径，不支持 glob，也不扩大扫描范围。" },
+        "sources": { "$ref": "#/$defs/sources", "minItems": 1 }
+      }
+    },
+    "view": {
+      "type": "object", "unevaluatedProperties": false, "allOf": [{ "$ref": "#/$defs/runtime" }],
+      "required": ["id", "title", "modules"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id", "not": { "const": "catalog" } }, "title": { "$ref": "#/$defs/text" },
+        "subtitle": { "type": "string" }, "group": { "type": "string" }, "icon": { "$ref": "#/$defs/text" },
+        "kind": { "enum": ["overview", "flow", "narrative", "sequence", "state", "data", "deployment", "recovery", "dependency", "mindmap", "custom"] },
+        "diagram": { "$ref": "#/$defs/text" }, "mobileDiagram": { "$ref": "#/$defs/text" },
+        "modules": { "$ref": "#/$defs/ids" }, "tags": { "$ref": "#/$defs/texts" }, "sources": { "$ref": "#/$defs/sources" },
+        "notes": { "type": "array", "items": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "string" } } },
+        "aliases": { "type": "object", "propertyNames": { "$ref": "#/$defs/text" }, "additionalProperties": { "$ref": "#/$defs/text" } },
+        "useDefaultClasses": { "type": "boolean", "default": true },
+        "legend": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["label", "color"], "properties": { "label": { "type": "string" }, "color": { "type": "string", "pattern": "^#[a-fA-F0-9]{6}$" } } } }
+      },
+      "if": { "required": ["kind"], "properties": { "kind": { "const": "narrative" } } },
+      "else": { "required": ["diagram"] }
+    },
+    "status": { "enum": ["covered", "partial", "unknown", "not_applicable"] },
+    "coverageRules": {
+      "allOf": [
+        { "if": { "required": ["status"], "properties": { "status": { "enum": ["covered", "partial"] } } }, "then": { "required": ["sources"], "properties": { "sources": { "minItems": 1 } } } },
+        { "if": { "required": ["status"], "properties": { "status": { "const": "unknown" } } }, "then": { "required": ["nextCheck"], "properties": { "nextCheck": { "$ref": "#/$defs/text" } } } }
+      ]
+    },
+    "stage": {
+      "type": "object", "unevaluatedProperties": false, "allOf": [{ "$ref": "#/$defs/runtime" }, { "$ref": "#/$defs/coverageRules" }],
+      "required": ["id", "label", "status", "summary"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "label": { "$ref": "#/$defs/text" }, "summary": { "$ref": "#/$defs/text" },
+        "kind": { "$ref": "#/$defs/text", "examples": ["entry", "authorization", "validation", "orchestration", "read", "write", "side_effect", "publication", "consume", "outcome", "recovery", "custom"], "description": "推荐使用标准阶段类型；保留自定义字符串兼容既有清单。" },
+        "status": { "$ref": "#/$defs/status" }, "nextCheck": { "type": "string" },
+        "modules": { "$ref": "#/$defs/ids" }, "sources": { "$ref": "#/$defs/sources" }
+      }
+    },
+    "chain": {
+      "type": "object", "unevaluatedProperties": false, "allOf": [{ "$ref": "#/$defs/runtime" }],
+      "required": ["id", "title", "summary", "trigger", "outcome", "stages", "sources"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "title": { "$ref": "#/$defs/text" }, "summary": { "$ref": "#/$defs/text" },
+        "kind": { "$ref": "#/$defs/text" }, "trigger": { "$ref": "#/$defs/text" }, "outcome": { "$ref": "#/$defs/text" },
+        "modules": { "$ref": "#/$defs/ids" }, "views": { "$ref": "#/$defs/ids" },
+        "stages": { "type": "array", "minItems": 3, "items": { "$ref": "#/$defs/stage" } },
+        "sources": { "$ref": "#/$defs/sources", "minItems": 1 }
+      }
+    },
+    "finding": {
+      "type": "object", "unevaluatedProperties": false, "allOf": [{ "$ref": "#/$defs/runtime" }],
+      "required": ["id", "title", "summary", "kind", "status", "sources"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "title": { "$ref": "#/$defs/text" }, "summary": { "$ref": "#/$defs/text" },
+        "kind": { "enum": ["fact", "risk", "gap", "decision"] }, "status": { "enum": ["confirmed", "inferred", "unverified"] },
+        "impact": { "type": "string" }, "nextCheck": { "type": "string" }, "modules": { "$ref": "#/$defs/ids" },
+        "sources": { "$ref": "#/$defs/sources", "minItems": 1 }
+      },
+      "if": { "required": ["status"], "properties": { "status": { "const": "unverified" } } },
+      "then": { "required": ["nextCheck"], "properties": { "nextCheck": { "$ref": "#/$defs/text" } } }
+    },
+    "coverage": {
+      "type": "object", "unevaluatedProperties": false, "allOf": [{ "$ref": "#/$defs/runtime" }, { "$ref": "#/$defs/coverageRules" }],
+      "required": ["id", "area", "summary", "status"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "area": { "$ref": "#/$defs/text" }, "summary": { "$ref": "#/$defs/text" },
+        "status": { "$ref": "#/$defs/status" }, "nextCheck": { "type": "string" },
+        "modules": { "$ref": "#/$defs/ids" }, "sources": { "$ref": "#/$defs/sources" }
+      }
+    },
+    "table": {
+      "type": "object", "unevaluatedProperties": false, "allOf": [{ "$ref": "#/$defs/runtime" }],
+      "required": ["name", "title", "kind", "description", "sources"],
+      "properties": {
+        "name": { "$ref": "#/$defs/text" }, "title": { "$ref": "#/$defs/text" }, "kind": { "$ref": "#/$defs/text" },
+        "description": { "$ref": "#/$defs/text" }, "sources": { "$ref": "#/$defs/sources", "minItems": 1 }
+      }
+    },
+    "route": {
+      "type": "object", "unevaluatedProperties": false, "allOf": [{ "$ref": "#/$defs/runtime" }],
+      "required": ["prefix", "name", "description", "sources"],
+      "properties": {
+        "prefix": { "$ref": "#/$defs/text" }, "name": { "$ref": "#/$defs/text" }, "kind": { "$ref": "#/$defs/text" },
+        "description": { "$ref": "#/$defs/text" }, "sources": { "$ref": "#/$defs/sources", "minItems": 1 }
+      }
+    },
+    "flag": {
+      "type": "object", "unevaluatedProperties": false, "allOf": [{ "$ref": "#/$defs/runtime" }],
+      "required": ["name", "value", "description", "sources"],
+      "properties": {
+        "name": { "$ref": "#/$defs/text" }, "value": {}, "description": { "$ref": "#/$defs/text" },
+        "sources": { "$ref": "#/$defs/sources", "minItems": 1 }
+      }
+    },
+    "repository": {
+      "type": "object", "additionalProperties": false, "required": ["path"],
+      "properties": { "name": { "$ref": "#/$defs/text" }, "path": { "$ref": "#/$defs/path" } }
+    },
+    "fileGroup": {
+      "type": "object", "additionalProperties": false, "required": ["name", "paths", "extensions"],
+      "properties": {
+        "name": { "$ref": "#/$defs/text" }, "paths": { "type": "array", "items": { "$ref": "#/$defs/path" } },
+        "extensions": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^\\." } },
+        "exclude": { "$ref": "#/$defs/texts" }
+      }
+    }
+  }
+}
