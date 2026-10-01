@@ -252,6 +252,32 @@ try {
   await page.locator('#module-search').fill('');
   result.checks.push('search / evidence excerpt / relative source link / empty search');
 
+  const authoredSource = data.modules.find(item => item.links?.some(id => data.modules.some(moduleRow => moduleRow.id === id)));
+  const authoredTarget = authoredSource ? data.modules.find(item => item.id === authoredSource.links.find(id => data.modules.some(moduleRow => moduleRow.id === id))) : null;
+  if (authoredSource && authoredTarget) {
+    await page.evaluate(({ view, focus, reach }) => { location.hash = '#' + new URLSearchParams({ view, focus, reach }).toString(); }, { view: overviewId, focus: authoredSource.id, reach: 'downstream' });
+    await page.waitForFunction(id => window.repoAtlas.selectedModule === id, authoredSource.id);
+    assert.ok(await page.locator('#module-detail').isVisible(), 'module focus detail is hidden');
+    assert.ok(await page.locator('.module-passport').isVisible(), 'relationship passport is hidden');
+    assert.equal(new URLSearchParams(new URL(await page.evaluate(() => location.href)).hash.slice(1)).get('focus'), authoredSource.id);
+    await page.evaluate(() => { window.__copiedFocusLink = null; Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async value => { window.__copiedFocusLink = value; } } }); });
+    await page.locator('.module-copy-link').click();
+    const copiedFocus = await page.evaluate(() => window.__copiedFocusLink);
+    assert.equal(new URLSearchParams(new URL(copiedFocus).hash.slice(1)).get('focus'), authoredSource.id);
+    assert.equal(new URLSearchParams(new URL(copiedFocus).hash.slice(1)).get('reach'), 'downstream');
+    assert.ok(await page.locator(`[data-focus-module="${authoredTarget.id}"]`).count(), 'downstream authored link is missing');
+    await page.locator(`[data-focus-module="${authoredTarget.id}"]`).first().click();
+    assert.equal(await page.evaluate(() => window.repoAtlas.selectedModule), authoredTarget.id);
+    assert.equal(new URLSearchParams(new URL(await page.evaluate(() => location.href)).hash.slice(1)).get('focus'), authoredTarget.id);
+
+    await page.evaluate(({ view, route }) => { location.hash = '#' + new URLSearchParams({ view, route }).toString(); }, { view: overviewId, route: authoredSource.id + '~' + authoredTarget.id });
+    await page.waitForFunction(() => document.getElementById('detail-dialog').open && document.querySelectorAll('.authored-route li').length >= 2);
+    assert.ok((await page.locator('#dialog-body').innerText()).includes('authored relationship'));
+    assert.equal(new URLSearchParams(new URL(await page.evaluate(() => location.href)).hash.slice(1)).get('route'), authoredSource.id + '~' + authoredTarget.id);
+    await page.locator('#close-dialog').click();
+    result.checks.push('authored relationship passport / stable focus hash / finite route reading');
+  }
+
   const firstNode = page.locator('#graph-stage [data-module]').first();
   if (await firstNode.count()) {
     await firstNode.click();

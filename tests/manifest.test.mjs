@@ -112,6 +112,11 @@ test('diagnostics redact unknown property names and never echo source or anchor 
   const text = JSON.stringify(await validateManifestFile(resolve(dir, 'atlas.json')));
   assert.ok(!text.includes('fixture-secret'));
   assert.ok(text.includes('[REDACTED]'));
+  const diagnostic = (await validateManifestFile(resolve(dir, 'atlas.json'))).diagnostics.find(item => item.code === 'schema.unknownProperty');
+  assert.equal(diagnostic.subject, '/modules/0/[REDACTED]');
+  assert.equal(diagnostic.stage, 'validate/structure');
+  assert.ok(Array.isArray(diagnostic.supportedFixes) && diagnostic.supportedFixes.length > 0);
+  assert.equal(diagnostic.evidence.path, diagnostic.path);
 });
 
 test('path traversal, output collisions and escaping junctions remain errors in review mode', async t => {

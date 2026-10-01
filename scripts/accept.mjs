@@ -57,10 +57,30 @@ try {
   const secrets = redactionValues(collectSourceRows(bundle.manifest));
   const receipt = redactValue({ ...accepted.review, purpose: 'atlas-acceptance', schemaVersion: 1, manifestSha256: hashText(raw), snapshotSha256: hashText(writeJson(snapshot)), items: review.items }, secrets);
   await atomicWrite(bundle.workspace, resolve(staging, 'review.json'), writeJson(receipt), { replace: false });
+  const reportPath = resolve(staging, 'report.html');
+  const reportBytes = await readFile(reportPath);
+  const delivery = redactValue({
+    schemaVersion: 1,
+    purpose: 'repo-atlas-delivery',
+    status: 'current',
+    version,
+    generatedAt: new Date().toISOString(),
+    command: 'accept',
+    artifact: { path: 'report.html', sha256: hashText(reportBytes.toString('utf8')), bytes: reportBytes.byteLength },
+    inputs: {
+      manifest: { path: 'atlas.json', sha256: hashText(raw), bytes: Buffer.byteLength(raw) },
+      snapshot: { path: 'snapshot.json', sha256: hashText(writeJson(snapshot)), bytes: Buffer.byteLength(writeJson(snapshot)) },
+      review: { path: 'review.json', sha256: hashText(writeJson(receipt)), bytes: Buffer.byteLength(writeJson(receipt)) }
+    },
+    source: { workspaceSha256: snapshot.workspaceSha256, inventorySha256: snapshot.inventorySha256, git: snapshot.git || null },
+    runtime: { node: process.version, platform: process.platform, arch: process.arch },
+    checks: ['manifest-validated', 'review-approved', 'source-bound', 'report-built', 'atomic-release']
+  }, secrets);
+  await atomicWrite(bundle.workspace, resolve(staging, 'delivery.json'), writeJson(delivery), { replace: false });
   assertOutputInside(bundle.workspace, output);
   if (await exists(output)) throw new Error('Accepted output directory appeared during build');
   await rename(staging, output);
-  console.log(writeJson({ output, version, manifest: resolve(output, 'atlas.json'), baseline: resolve(output, 'snapshot.json'), report: resolve(output, 'report.html') }));
+  console.log(writeJson({ output, version, manifest: resolve(output, 'atlas.json'), baseline: resolve(output, 'snapshot.json'), report: resolve(output, 'report.html'), delivery: resolve(output, 'delivery.json') }));
 } finally {
   if (!inside(bundle.workspace, staging) || !staging.startsWith(resolve(dirname(output), '.atlas-pending-'))) throw new Error('Unexpected staging path');
   await rm(staging, { recursive: true, force: true });

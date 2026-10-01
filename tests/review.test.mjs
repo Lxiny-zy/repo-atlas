@@ -48,6 +48,16 @@ test('reviewed release contains report, receipt and usable baseline without repl
   assert.equal(accepted.review.reviewer, 'Synthetic test reviewer');
   const receipt = await json(dir, '.repo-atlas/accepted/test/review.json');
   assert.equal(receipt.purpose, 'atlas-acceptance'); assert.ok(receipt.items.length > 0);
+  const delivery = await json(dir, '.repo-atlas/accepted/test/delivery.json');
+  assert.equal(delivery.purpose, 'repo-atlas-delivery');
+  assert.equal(delivery.status, 'current');
+  assert.equal(delivery.artifact.path, 'report.html');
+  assert.equal(delivery.artifact.bytes, Buffer.byteLength(await readFile(resolve(dir, '.repo-atlas/accepted/test/report.html'))));
+  assert.equal(delivery.inputs.manifest.sha256, receipt.manifestSha256);
+  run(dir, 'check-delivery.mjs', ['.repo-atlas/accepted/test']);
+  const reportPath = resolve(dir, '.repo-atlas/accepted/test/report.html');
+  await writeFile(reportPath, `${await readFile(reportPath, 'utf8')}\n`);
+  run(dir, 'check-delivery.mjs', ['.repo-atlas/accepted/test'], /artifact hash mismatch/);
   const report = await readFile(resolve(dir, '.repo-atlas/accepted/test/report.html'), 'utf8');
   const data = JSON.parse(report.match(/<script id="graph-data" type="application\/json">([\s\S]*?)<\/script>/)[1]);
   assert.equal(data.review.reviewer, accepted.review.reviewer);

@@ -329,6 +329,18 @@ Run `node scripts/review.mjs path/to/atlas.next.json` after editing and checking
 
 Run `node scripts/accept.mjs path/to/atlas.next.json --review .repo-atlas/review.json`. It validates the candidate, source and baseline versions, performs a strict build, and publishes a new `.repo-atlas/accepted/<version>/` directory containing the manifest, report, snapshot, and review receipt. Existing inputs and release directories remain protected. Use the accepted manifest and its snapshot as the next baseline. Review records document local decisions and version checks; they are not identity authentication or digital signatures.
 
+Each accepted directory also contains `delivery.json`. It binds the report bytes to the accepted manifest, snapshot, review receipt, source inventory, Git state, runtime, and the checks completed by `accept`. Treat a missing, malformed, or mismatched delivery receipt as unverified output.
+
+Recheck an accepted delivery later with `node scripts/check-delivery.mjs .repo-atlas/accepted/<version>`; the command fails closed if any bound file was changed or removed.
+
+To compare two accepted manifests without inferring runtime risk, run:
+
+```text
+node scripts/compare.mjs .repo-atlas/accepted/old/atlas.json .repo-atlas/accepted/new/atlas.json --json
+```
+
+The semantic diff reports added, removed, and changed modules, views, chains, stages, findings, coverage entries, tables, routes, and flags. It is an authored-knowledge diff, not a blast-radius or merge-safety claim.
+
 Unresolved evidence blocks acceptance. `build.mjs --review` produces an explicitly labeled review preview with unresolved placeholders, while ordinary builds remain strict. Fix or remove the unresolved references and generate a fresh review before acceptance.
 
 ### Multi-chain delivery for complex repositories
@@ -345,7 +357,7 @@ Chain coverage counts applicable stages only, listing `not_applicable` separatel
 
 The catalog shows 50 entries per page and the chain directory 12. Search text is cached and results show the total match count. The update dialog includes the full stale-evidence list and unowned changes.
 
-Copy links to views, chains, stages and evidence. URL fragments restore the destination and highlight stages. Preserve the fragment when moving a standalone report; stable source IDs preserve evidence links across source-array reordering.
+Copy links to views, chains, stages and evidence. URL fragments restore the destination and highlight stages. Module details also expose an authored relationship passport from `modules.links`: upstream/downstream neighbors are directly navigable, and finite authored routes can be opened with `#route=<source>~<target>`. Focus links use `#view=<view>&focus=<module>&reach=upstream|downstream` and reopen the same reading position offline. These are authored-knowledge relationships, not runtime call paths, blast-radius claims, or merge-safety conclusions. Preserve the fragment when moving a standalone report; stable source IDs preserve evidence links across source-array reordering.
 
 To persist a candidate current snapshot as well:
 
@@ -359,7 +371,7 @@ node scripts/delta.mjs path/to/atlas.json --snapshot-output .repo-atlas/current-
 node scripts/verify.mjs path/to/report.html --playwright <installed-playwright/index.mjs>
 ```
 
-The verifier checks Mermaid rendering, page errors, pan/zoom, evidence dialogs, search, indexes, exports, fullscreen, and mobile layout. It does not download browsers or project dependencies.
+The verifier checks Mermaid rendering, page errors, pan/zoom, evidence dialogs, search, authored relationship passports and stable focus/route fragments, indexes, exports, fullscreen, and mobile layout. It does not download browsers or project dependencies.
 
 `npm test` covers incremental, review, and filesystem regressions. `npm run benchmark -- --scales 1000,10000` runs local synthetic scale checks. CI is configured for Windows/Linux and Node 18/22/24, plus pinned Playwright browser checks.
 
@@ -377,6 +389,8 @@ scripts/snapshot.mjs             Initial snapshot
 scripts/delta.mjs                Incremental diff
 scripts/refresh.mjs              Candidate manifest refresh
 scripts/context.mjs              Model-ready incremental context bundle
+scripts/compare.mjs              Accepted manifest semantic diff
+scripts/check-delivery.mjs       Delivery receipt integrity check
 scripts/verify.mjs               Browser interaction checks
 scripts/test.mjs                 Local regression fixture
 scripts/snapshot-lib.mjs         Snapshot and evidence index implementation

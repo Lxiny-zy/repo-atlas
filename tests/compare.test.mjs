@@ -1,0 +1,34 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+test('compare reports semantic entity additions, removals and field changes', async t => {
+  const dir = await mkdtemp(resolve(tmpdir(), 'atlas-compare-test-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  await cp(resolve(root, 'tests/fixtures/multi-chain/atlas.json'), resolve(dir, 'base.json'));
+  const head = JSON.parse(await readFile(resolve(dir, 'base.json'), 'utf8'));
+  head.modules[0].summary = 'Accepts and authenticates order requests.';
+  head.modules.pop();
+  head.views[0].modules = ['api', 'worker'];
+  head.chains.pop();
+  head.modules.push({ id: 'new-module', name: 'New module', summary: 'Newly mapped.', facts: [], links: [], sources: [{ path: 'src/audit.js', match: 'export function recordAudit', length: 1 }] });
+  head.modules[1].links = ['new-module'];
+  await writeFile(resolve(dir, 'head.json'), JSON.stringify(head));
+  const run = spawnSync(process.execPath, [resolve(root, 'scripts/compare.mjs'), 'base.json', 'head.json', '--json'], { cwd: dir, encoding: 'utf8', windowsHide: true });
+  assert.equal(run.status, 0, run.stderr);
+  const result = JSON.parse(run.stdout);
+  assert.ok(result.summary.added >= 1);
+  assert.ok(result.summary.removed >= 1);
+  assert.ok(result.summary.changed >= 1);
+  assert.equal(result.collections.modules.added[0].key, 'new-module');
+  assert.equal(result.collections.modules.removed[0].key, 'audit');
+  assert.ok(result.collections.modules.changed.length >= 1);
+  assert.ok(result.collections.modules.changed[0].fields.some(field => field.path === '/summary'));
+  assert.ok(result.collections.stages);
+  assert.equal(result.summary.rootChanged, false);
+});

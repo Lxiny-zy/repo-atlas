@@ -10,6 +10,34 @@
   const icon = name => `<i data-lucide="${esc(name)}"></i>`;
   const icons = () => window.lucide.createIcons();
   const byId = id => data.modules.find(module => module.id === id);
+  for (const module of data.modules) module.links ||= [];
+  const moduleLinkIds = module => (module?.links || []).filter(id => byId(id));
+  function authoredNeighbors(id, direction) {
+    if (direction === 'upstream') return data.modules.filter(module => moduleLinkIds(module).includes(id));
+    return moduleLinkIds(byId(id)).map(linkId => byId(linkId)).filter(Boolean);
+  }
+  function authoredRoute(sourceId, targetId) {
+    if (!byId(sourceId) || !byId(targetId)) return null;
+    if (sourceId === targetId) return [sourceId];
+    const queue = [[sourceId]];
+    const visited = new Set([sourceId]);
+    while (queue.length) {
+      const path = queue.shift();
+      for (const next of moduleLinkIds(byId(path.at(-1)))) {
+        if (visited.has(next)) continue;
+        const nextPath = [...path, next];
+        if (next === targetId) return nextPath;
+        visited.add(next);
+        queue.push(nextPath);
+      }
+    }
+    return null;
+  }
+  const routePair = value => {
+    const separator = String(value || '').indexOf('~');
+    if (separator <= 0 || separator === String(value || '').length - 1) return null;
+    return [String(value).slice(0, separator), String(value).slice(separator + 1)];
+  };
   const fileUrl = path => data.sourceBase.split('/').map(encodeURIComponent).join('/') + path.split('/').map(encodeURIComponent).join('/');
   const sourceLocation = source => source.line == null ? '未解析' : 'L' + source.line;
   const basename = path => path.split('/').pop();
@@ -59,6 +87,11 @@
   }
   const fragment = route => '#' + new URLSearchParams(Object.entries(route).filter(([, value]) => value != null)).toString();
   function shareUrl(route) { const url = new URL(location.href); url.hash = fragment(route); return url.href; }
+  function updateReadingHash(route, replace = false) {
+    const next = fragment(route);
+    if (location.hash === next) return;
+    (replace ? history.replaceState : history.pushState).call(history, null, '', next);
+  }
   async function copyLink(route) {
     const url = shareUrl(route);
     try { await navigator.clipboard.writeText(url); showToast('链接已复制；分享报告后保留 # 后的定位片段。'); }
@@ -472,12 +505,33 @@
     }
   });
 
-  function moduleMarkup(module) {
+  function legacyModuleMarkup(module) {
     return `<div class="module-detail-heading"><h3>${esc(module.name)}</h3><span class="status-stack"><span class="tag">${esc(module.category)}</span>${freshnessBadge(module)}</span></div><p class="summary">${esc(module.summary)}</p>${module.staleReason ? `<p class="stale-note">${esc(module.staleReason)}</p>` : ''}<ul>${module.facts.map(fact => `<li>${esc(fact)}</li>`).join('')}</ul><div class="detail-grid"><div><div class="detail-heading">关联职责</div><div class="related-links">${module.links.map(id => byId(id) ? `<button class="text-link" data-inspect-module="${id}">${esc(byId(id).name)}</button>` : '').join('')}</div></div><div><div class="detail-heading">源码依据</div>${module.sources.map((source, index) => `<button class="evidence-link" data-evidence-module="${module.id}" data-source="${index}">${icon('file-code-2')}<span>${esc(basename(source.path))}<span class="file-meta">${sourceLocation(source)} · ${esc(source.path.split('/')[0])}</span></span></button>`).join('')}</div></div>`;
   }
 
   function sourceListMarkup(sources) {
     return sources.map((source, index) => `<button class="evidence-link" data-direct-source="${index}">${icon('file-code-2')}<span>${esc(source.path)}<span class="file-meta">${sourceLocation(source)}</span></span></button>`).join('');
+  }
+
+  function modulePassportMarkup(module, focusReach) {
+    const upstream = authoredNeighbors(module.id, 'upstream');
+    const downstream = authoredNeighbors(module.id, 'downstream');
+    const list = (items, direction) => items.length
+      ? `<div class="passport-links">${items.map(item => `<button class="passport-link" data-focus-module="${item.id}" data-focus-reach="${direction}">${icon(direction === 'upstream' ? 'arrow-up-left' : 'arrow-down-right')}<span>${esc(item.name)}</span></button>`).join('')}</div>`
+      : `<p class="passport-empty">${direction === 'upstream' ? '没有已记录的上游职责' : '没有已记录的下游职责'}</p>`;
+    const routePairs = upstream.flatMap(source => downstream.map(target => [source, target])).slice(0, 8);
+    return `<section class="module-passport" aria-label="${esc(module.name)} 的 authored 关系护照">
+      <div class="passport-heading"><div><div class="detail-heading">关系护照</div><p>只展示 <code>atlas.json</code> 中已记录的 authored relationship，不代表运行时调用、影响范围或合并安全性。</p></div><button class="text-link module-copy-link" data-copy-focus="${module.id}" data-focus-reach="${esc(focusReach || '')}">${icon('link')}复制焦点链接</button></div>
+      <div class="passport-stats"><span><strong>${upstream.length}</strong> 上游职责</span><span><strong>${downstream.length}</strong> 下游职责</span><span><strong>${upstream.length + downstream.length}</strong> 直接关系</span></div>
+      <div class="passport-columns"><div><h4>上游职责</h4>${list(upstream, 'upstream')}</div><div><h4>下游职责</h4>${list(downstream, 'downstream')}</div></div>
+      ${routePairs.length ? `<div class="passport-routes"><h4>有限 authored 路径</h4><div class="passport-links">${routePairs.map(([source, target]) => `<button class="passport-link passport-route-link" data-authored-route="${esc(source.id + '~' + target.id)}">${icon('route')}<span>${esc(source.name)} → ${esc(target.name)}</span></button>`).join('')}</div></div>` : ''}
+    </section>`;
+  }
+
+  function moduleMarkup(module, options = {}) {
+    const focusReach = options.focusReach;
+    const related = moduleLinkIds(module);
+    return `<div class="module-detail-heading"><h3>${esc(module.name)}</h3><span class="status-stack"><span class="tag">${esc(module.category)}</span>${freshnessBadge(module)}</span></div><p class="summary">${esc(module.summary)}</p>${module.staleReason ? `<p class="stale-note">${esc(module.staleReason)}</p>` : ''}<ul>${module.facts.map(fact => `<li>${esc(fact)}</li>`).join('')}</ul>${modulePassportMarkup(module, focusReach)}<div class="detail-grid"><div><div class="detail-heading">关联职责</div><div class="related-links">${related.map(item => `<button class="text-link" data-focus-module="${item.id}">${esc(item.name)}</button>`).join('')}</div></div><div><div class="detail-heading">源码依据</div>${module.sources.map((source, index) => `<button class="evidence-link" data-evidence-module="${module.id}" data-source="${index}">${icon('file-code-2')}<span>${esc(basename(source.path))}<span class="file-meta">${sourceLocation(source)} · ${esc(source.path.split('/')[0])}</span></span></button>`).join('')}</div></div>`;
   }
 
   function showSourceCollection(title, description, sources) {
@@ -544,6 +598,21 @@
     if (chain) showDialog(chain.title, chainMarkup(chain), null, { view: chain.readingView || current.id, chain: chain.id });
   }
 
+  function authoredRouteMarkup(sourceId, targetId, path) {
+    const source = byId(sourceId);
+    const target = byId(targetId);
+    return `<div class="detail-status"><span class="tag">authored relationship</span><span class="tag">${path.length - 1} ${path.length - 1 === 1 ? 'hop' : 'hops'}</span></div><p>这是一条沿 <code>modules.links</code> 计算的有限路径，仅表示仓库清单中记录的关系，不等同于运行时调用路径、blast radius 或部署拓扑。</p><ol class="authored-route">${path.map((id, index) => { const module = byId(id); return `<li><span class="route-index">${index + 1}</span><button class="text-link strong-link" data-focus-module="${module.id}">${esc(module.name)}</button><small>${esc(module.category)}</small>${index < path.length - 1 ? '<span class="route-arrow" aria-hidden="true">→</span>' : ''}</li>`; }).join('')}</ol><p class="passport-disclaimer">起点：${esc(source.name)}；终点：${esc(target.name)}。路径只沿 authored 边向下搜索，并在遇到环时停止扩展。</p>`;
+  }
+
+  function showAuthoredRoute(value, updateHash = true) {
+    const pair = routePair(value);
+    const path = pair ? authoredRoute(pair[0], pair[1]) : null;
+    if (!pair || !path) { showToast('未找到可用的 authored 路径'); return; }
+    const route = { view: current?.id || overviewId, route: pair.join('~') };
+    if (updateHash) updateReadingHash(route);
+    showDialog(`${byId(pair[0]).name} → ${byId(pair[1]).name}`, authoredRouteMarkup(pair[0], pair[1], path), null, route);
+  }
+
   function restoreLocation() {
     if (dialog.open) dialog.close();
     dialogHistory.length = 0;
@@ -552,8 +621,13 @@
     const chain = route.chain ? data.chains.find(row => row.id === route.chain) : null;
     const stage = route.stage ? chain?.stages.find(row => row.id === route.stage) : null;
     const target = route.evidence ? evidenceTargets.get(route.evidence) : null;
+    const focus = route.focus ? byId(route.focus) : null;
+    const focusReach = ['upstream', 'downstream'].includes(route.reach) ? route.reach : null;
+    const routePairValue = route.route;
+    const authoredPair = routePairValue ? routePair(routePairValue) : null;
+    const authoredPath = authoredPair ? authoredRoute(authoredPair[0], authoredPair[1]) : null;
     navigate(route.view || chain?.readingView || target?.view || overviewId, false);
-    if ((route.chain && !chain) || (route.stage && !stage) || (route.evidence && !target) || (target && route.chain && target.chain !== route.chain) || (target && route.stage && target.stage !== route.stage) || (route.view && !data.views.some(view => view.id === route.view))) {
+    if ((route.chain && !chain) || (route.stage && !stage) || (route.evidence && !target) || (route.focus && !focus) || (route.reach && !focusReach) || (route.route && (!authoredPair || !authoredPath)) || (target && route.chain && target.chain !== route.chain) || (target && route.stage && target.stage !== route.stage) || (route.view && !data.views.some(view => view.id === route.view))) {
       showToast('定位目标不存在，已显示可用视图。'); return;
     }
     if (stage) {
@@ -565,6 +639,8 @@
       if (chain && !dialog.open) showChain(chain.id);
       showEvidence(target.source);
     }
+    if (focus) inspectModule(focus.id, current.id === 'catalog', { focusReach, updateHash: false });
+    if (authoredPair) showAuthoredRoute(routePairValue, false);
   }
 
   function renderChains() {
@@ -600,15 +676,17 @@
     $('finding-highlights').innerHTML = findings.map(finding => `<article class="finding-highlight"><div class="status-stack">${statusBadge(finding.kind, kindLabels[finding.kind])}${statusBadge(finding.status)}${freshnessBadge(finding)}</div><h4><button class="text-link strong-link" data-finding="${finding.id}">${esc(finding.title)}</button></h4><p>${esc(finding.summary)}</p></article>`).join('');
   }
 
-  function inspectModule(id, modal = false) {
+  function inspectModule(id, modal = false, options = {}) {
     const module = byId(id);
     if (!module) return;
     selectedModule = id;
     stage.querySelectorAll('[data-module]').forEach(node => node.classList.toggle('is-selected', node.dataset.module === id));
+    const route = { view: current?.id || overviewId, focus: module.id, reach: options.focusReach };
+    if (options.updateHash !== false) updateReadingHash(route);
     if (modal || current.id === 'catalog' || dialog.open) {
-      showDialog(module.name, moduleMarkup(module));
+      showDialog(module.name, moduleMarkup(module, options), null, route);
     } else {
-      $('module-detail').innerHTML = moduleMarkup(module);
+      $('module-detail').innerHTML = moduleMarkup(module, options);
       $('module-detail').hidden = false;
       $('module-list').querySelectorAll('[data-module]').forEach(button => button.setAttribute('aria-expanded', String(button.dataset.module === id)));
       icons();
@@ -617,6 +695,18 @@
   }
 
   document.addEventListener('click', event => {
+    const copyFocus = event.target.closest('[data-copy-focus]');
+    if (copyFocus) {
+      copyLink({ view: current?.id || overviewId, focus: copyFocus.dataset.copyFocus, reach: copyFocus.dataset.focusReach || undefined });
+      return;
+    }
+    const authored = event.target.closest('[data-authored-route]');
+    if (authored) { showAuthoredRoute(authored.dataset.authoredRoute); return; }
+    const focus = event.target.closest('[data-focus-module]');
+    if (focus) {
+      inspectModule(focus.dataset.focusModule, dialog.open || current?.id === 'catalog', { focusReach: focus.dataset.focusReach, updateHash: true });
+      return;
+    }
     const evidence = event.target.closest('[data-evidence-module]');
     if (evidence) { showEvidence(byId(evidence.dataset.evidenceModule).sources[Number(evidence.dataset.source)]); return; }
     const inspect = event.target.closest('[data-inspect-module]');
@@ -914,6 +1004,6 @@
   $('open-chains').addEventListener('click', () => openCatalog('chains'));
   nav();
   icons();
-  window.repoAtlas = { navigate, data, fit, shareUrl, get currentView() { return current?.id; }, get camera() { return { ...camera }; }, get selectedModule() { return selectedModule; } };
+  window.repoAtlas = { navigate, data, fit, shareUrl, focusModule: (id, options = {}) => inspectModule(id, options.modal ?? false, options), showAuthoredRoute, authoredRoute, get currentView() { return current?.id; }, get camera() { return { ...camera }; }, get selectedModule() { return selectedModule; } };
   restoreLocation();
 })();

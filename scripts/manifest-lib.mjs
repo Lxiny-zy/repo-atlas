@@ -23,9 +23,46 @@ export function manifestRows(manifest) {
 function secretsIn(manifest) {
   return [...new Set(manifestRows(manifest).flatMap(({ row }) => list(row.sources).flatMap(source => list(source?.redact).filter(value => typeof value === 'string' && value.length))))];
 }
+const diagnosticStage = code => {
+  if (code === 'input.read' || code === 'input.json') return 'input';
+  if (code.startsWith('schema.') || code.startsWith('identity.') || code.startsWith('reference.')) return 'validate/structure';
+  if (code.startsWith('evidence.')) return 'validate/evidence';
+  if (code.startsWith('path.')) return 'validate/paths';
+  if (code.startsWith('output.')) return 'validate/output';
+  return 'validate';
+};
+const diagnosticFixes = code => {
+  if (code === 'schema.required') return ['add the required field at the reported JSON Pointer'];
+  if (code === 'schema.unknownProperty') return ['remove the unsupported field or use the documented spelling'];
+  if (code.startsWith('schema.')) return ['edit the value at the reported JSON Pointer to satisfy the manifest schema'];
+  if (code === 'identity.duplicate') return ['give the duplicate entries unique IDs within the collection'];
+  if (code === 'reference.unknown') return ['replace the reference with an existing entity ID'];
+  if (code === 'evidence.ambiguous') return ['add occurrence or replace the anchor with a unique source phrase'];
+  if (code === 'evidence.missing') return ['restore the source anchor or remove the evidence reference'];
+  if (code === 'evidence.fileMissing') return ['restore the source file or update the evidence path'];
+  if (code.startsWith('evidence.')) return ['repair the source evidence at the reported location'];
+  if (code === 'path.escape') return ['use a workspace-contained relative path'];
+  if (code.startsWith('path.')) return ['correct the path and verify it exists inside the workspace'];
+  if (code === 'output.invalid') return ['choose a workspace-contained .html output that does not collide with inputs'];
+  if (code === 'input.read') return ['check that the manifest path exists and is readable'];
+  if (code === 'input.json') return ['fix the JSON syntax and rerun validation'];
+  return ['inspect the reported subject and rerun validation'];
+};
+function enrichDiagnostics(diagnostics) {
+  return diagnostics.map(item => ({
+    ...item,
+    subject: item.path || '/',
+    stage: diagnosticStage(item.code || ''),
+    evidence: {
+      path: item.path || '/',
+      ...(item.relatedPath ? { relatedPath: item.relatedPath } : {})
+    },
+    supportedFixes: diagnosticFixes(item.code || '')
+  }));
+}
 function finish(manifest, diagnostics) {
   const unique = [...new Map(diagnostics.map(item => [`${item.code}:${item.path}`, item])).values()];
-  return redactValue(unique, secretsIn(manifest));
+  return redactValue(enrichDiagnostics(unique), secretsIn(manifest));
 }
 
 export function validateManifest(manifest, { sanitize = true } = {}) {
@@ -79,9 +116,9 @@ export async function validateManifestFile(file, { structureOnly = false, review
   const result = { file, valid: false, checks: { structure: false, references: false, sources: false, paths: false }, diagnostics: [] };
   const add = (code, path, message, severity = 'error') => result.diagnostics.push({ severity, code, path, message });
   try { raw = await readFile(resolve(file), 'utf8'); }
-  catch { add('input.read', '', '无法读取清单文件。'); return result; }
+  catch { add('input.read', '', '无法读取清单文件。'); result.diagnostics = finish({}, result.diagnostics); return result; }
   try { manifest = JSON.parse(raw.replace(/^\uFEFF/, '')); }
-  catch { add('input.json', '', 'JSON 语法无效；请检查引号、逗号和括号。'); return result; }
+  catch { add('input.json', '', 'JSON 语法无效；请检查引号、逗号和括号。'); result.diagnostics = finish({}, result.diagnostics); return result; }
   result.diagnostics = validateManifest(manifest, { sanitize: false });
   result.checks.structure = true; result.checks.references = true;
   // Bad unrelated fields must not hide evidence errors. Only malformed source

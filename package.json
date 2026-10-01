@@ -24,8 +24,10 @@
     "refresh": "node scripts/refresh.mjs",
     "review": "node scripts/review.mjs",
     "accept": "node scripts/accept.mjs",
+    "compare": "node scripts/compare.mjs",
+    "check-delivery": "node scripts/check-delivery.mjs",
     "verify": "node scripts/verify.mjs",
     "benchmark": "node scripts/benchmark.mjs",
-    "test": "node --test tests/manifest.test.mjs tests/incremental.test.mjs tests/review.test.mjs && node scripts/test.mjs"
+    "test": "node --test tests/manifest.test.mjs tests/incremental.test.mjs tests/review.test.mjs tests/compare.test.mjs && node scripts/test.mjs"
   }
 }
