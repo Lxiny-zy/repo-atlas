@@ -2,9 +2,11 @@
 
 ## Unreleased
 
+- Removed dated review artifacts and redundant navigation/prompt documents from the working tree; retained history in Git and consolidated current writing/maintenance guidance. Regression tests and report examples remain available.
+
 ### Repository maintenance
 
-- Added a current documentation index, example guide, community policy and branch/dependency/release maintenance rules; moved dated reviews into `docs/archive/reviews/`.
+- Added a community policy and documented branch, dependency and release rules in `CONTRIBUTING.md`.
 - Grouped scheduled dependency updates, pinned GitHub Actions v7 commits, and added a stable required Quality gate without duplicate push/PR runs on feature branches.
 - Kept Playwright minor/major upgrades manual while Node 18 compatibility remains supported; Playwright 1.63 requires Node 20.
 - Fixed candidate refresh through Windows directory aliases and applied the file-navigation offline workaround to WebKit on all platforms, addressing failures visible on hosted CI.
