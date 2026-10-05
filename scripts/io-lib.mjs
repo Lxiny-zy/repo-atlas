@@ -13,7 +13,9 @@ export function assertOutputInside(workspace, value) {
     try {
       const info = lstatSync(ancestor);
       if (info.isSymbolicLink() && ancestor === full) throw new Error('Output/input file must not be a symbolic link');
-      if (!inside(workspace, realpathSync(ancestor))) throw new Error('Output ancestor escapes workspace');
+      // Match fs/promises.realpath: the legacy JS resolver can preserve Windows
+      // 8.3 names in junction targets and falsely disagree with the workspace.
+      if (!inside(workspace, realpathSync.native(ancestor))) throw new Error('Output ancestor escapes workspace');
       return full;
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
@@ -27,7 +29,7 @@ const identity = path => { try { return statSync(path); } catch (error) { if (er
 const canonicalDestination = path => {
   let ancestor = resolve(path);
   for (;;) {
-    try { return resolve(realpathSync(ancestor), relative(ancestor, resolve(path))); }
+    try { return resolve(realpathSync.native(ancestor), relative(ancestor, resolve(path))); }
     catch (error) { if (error.code !== 'ENOENT' || dirname(ancestor) === ancestor) throw error; ancestor = dirname(ancestor); }
   }
 };
