@@ -4,11 +4,11 @@
 
 ## 已交付
 
-- [atlas.schema.json](../../schemas/atlas.schema.json)：draft 2020-12 契约，覆盖可编辑字段、证据长度/次数、状态、条件必填项和未知字段检查；[最小示例](../../schemas/atlas.example.json) 可直接针对仓库夹具验证。
-- [.vscode/settings.json](../../.vscode/settings.json)：为 `atlas.json` / `atlas.next.json` 关联本地 Schema。
-- [validate.mjs](../../scripts/validate.mjs)：只读批量检查，支持 JSON 输出、结构检查和复核模式；一个文件失败后继续处理其他文件。错误定位使用 JSON Pointer，重复 ID 指向首次定义。
-- [manifest-lib.mjs](../../scripts/manifest-lib.mjs)：共享结构与引用预检，已接入 build 和所有通过 loadManifest 读取清单的增量/复核命令；独立验证还汇总源码锚点、路径与显式输出冲突。
-- [schema-lib.mjs](../../scripts/schema-lib.mjs)：无运行依赖的随附 Schema 执行器，不实现完整通用 JSON Schema；不支持的关键字在启动时报错。
+- [atlas.schema.json](../../../schemas/atlas.schema.json)：draft 2020-12 契约，覆盖可编辑字段、证据长度/次数、状态、条件必填项和未知字段检查；[最小示例](../../../schemas/atlas.example.json) 可直接针对仓库夹具验证。
+- [.vscode/settings.json](../../../.vscode/settings.json)：为 `atlas.json` / `atlas.next.json` 关联本地 Schema。
+- [validate.mjs](../../../scripts/validate.mjs)：只读批量检查，支持 JSON 输出、结构检查和复核模式；一个文件失败后继续处理其他文件。错误定位使用 JSON Pointer，重复 ID 指向首次定义。
+- [manifest-lib.mjs](../../../scripts/manifest-lib.mjs)：共享结构与引用预检，已接入 build 和所有通过 loadManifest 读取清单的增量/复核命令；独立验证还汇总源码锚点、路径与显式输出冲突。
+- [schema-lib.mjs](../../../scripts/schema-lib.mjs)：无运行依赖的随附 Schema 执行器，不实现完整通用 JSON Schema；不支持的关键字在启动时报错。
 - refresh / accept 移动清单时重写相对 `$schema`，保持编辑器链接目标；该字段不改变语义哈希。修正阶段 ID 拼接校验问题，链路和阶段各自可使用 64 字符 ID。
 
 ## 使用
@@ -45,9 +45,9 @@ node scripts/validate.mjs atlas.next.json --review
 
 可复验入口：
 
-- [独立 Schema 对照脚本](../../scripts/verify-schema.mjs)：`node scripts/verify-schema.mjs --ajv tmp-schema-validation/node_modules/ajv/dist/2020.js`。
-- [编辑器探针](../../tmp-schema-editor/probe.mjs) 与[实测结果](../../tmp-schema-editor/result.json)，测试依赖仅位于临时目录。
-- [最新中文报告](../../tmp-frontend-optimized/report.html) 与 [Chromium 结果](../../tmp-frontend-optimized/report.verification/chromium/result.json)。
+- [独立 Schema 对照脚本](../../../scripts/verify-schema.mjs)：`node scripts/verify-schema.mjs --ajv tmp-schema-validation/node_modules/ajv/dist/2020.js`。
+- [编辑器探针](../../../tmp-schema-editor/probe.mjs) 与[实测结果](../../../tmp-schema-editor/result.json)，测试依赖仅位于临时目录。
+- [最新中文报告](../../../tmp-frontend-optimized/report.html) 与 [Chromium 结果](../../../tmp-frontend-optimized/report.verification/chromium/result.json)。
 - [批量诊断样本及摘要](2026-09-29-validation-results.json)。
 
 ## 剩余本地任务

@@ -1,6 +1,6 @@
 **repo-atlas 深入分析与改进建议 · 2026-09-28**
 
-本文保留优化前的分析与复现记录，不代表当前实现仍有全部问题。同日后续已完成前端阅读与导航改进，以及共享证据、v2 基线、增量身份校验、输出保护、阶段归属和复核队列等修复。完成范围、验证和剩余扩展项见[改进交付记录](2026-09-28-improvement-delivery.md)。可查看[更新后的中文预览](../../tmp-frontend-optimized/report.html)和[浏览器验证结果](../../tmp-frontend-optimized/report.verification/result.json)。
+本文保留优化前的分析与复现记录，不代表当前实现仍有全部问题。同日后续已完成前端阅读与导航改进，以及共享证据、v2 基线、增量身份校验、输出保护、阶段归属和复核队列等修复。完成范围、验证和剩余扩展项见[改进交付记录](2026-09-28-improvement-delivery.md)。可查看[更新后的中文预览](../../../tmp-frontend-optimized/report.html)和[浏览器验证结果](../../../tmp-frontend-optimized/report.verification/result.json)。
 
 当前项目已经把源码证据、离线交付、多业务链路和增量上下文串成了一条可用主线。最需要优先解决的是这条主线各环节对“同一份证据、同一个基线、同一个复核状态”的理解不一致。现阶段继续增加视图种类，会放大这些不一致带来的维护成本。
 
@@ -16,7 +16,7 @@
 - 没有连接实验室服务器。没有修改项目原有实现、提交代码或上传文件。新增正式产物为本分析文档；复现代码和合成数据位于被忽略的 `tmp-review-20260928/`。
 - 未执行大仓库压力测试、完整浏览器矩阵、Node.js 全版本矩阵或第三方依赖漏洞审计。下文性能判断区分代码结构观察与实际测量。
 
-复现材料：[CLI 样例](../../tmp-review-20260928/probe.mjs)、[12 项结果](../../tmp-review-20260928/results.json)、[多仓库样例](../../tmp-review-20260928/multirepo.mjs)、[多仓库结果](../../tmp-review-20260928/multirepo-results.json)、[浏览器检查代码](../../tmp-review-20260928/browser-check.js)、[自带验证器失败记录](../../tmp-review-20260928/run-1s64Fd/browser/report.verification/result.json)。这些临时材料适合本地复核，不应把其中的完整合成仓库作为正式项目源码提交。
+复现材料：[CLI 样例](../../../tmp-review-20260928/probe.mjs)、[12 项结果](../../../tmp-review-20260928/results.json)、[多仓库样例](../../../tmp-review-20260928/multirepo.mjs)、[多仓库结果](../../../tmp-review-20260928/multirepo-results.json)、[浏览器检查代码](../../../tmp-review-20260928/browser-check.js)、[自带验证器失败记录](../../../tmp-review-20260928/run-1s64Fd/browser/report.verification/result.json)。这些临时材料适合本地复核，不应把其中的完整合成仓库作为正式项目源码提交。
 
 **1. 项目真正的核心，以及目前的结构性问题**
 
@@ -216,7 +216,7 @@ flowchart LR
 - `app.js:442` 一次渲染全部链路卡片，目录宜支持折叠/分页；这个调整同时改善手机体验和 DOM 规模。
 - CI 增加键盘返回、弹窗焦点、320px 长名称与真实长链路场景。按钮存在可访问名称只能覆盖无障碍的一小部分。
 
-本次截图：[桌面状态矛盾](../../tmp-review-20260928/narrative-desktop.png)、[手机信息顺序](../../tmp-review-20260928/narrative-mobile.png)。手机截图是在浏览器内将末阶段改成 not_applicable 的合成检查状态下取得，不是原始夹具截图。
+本次截图：[桌面状态矛盾](../../../tmp-review-20260928/narrative-desktop.png)、[手机信息顺序](../../../tmp-review-20260928/narrative-mobile.png)。手机截图是在浏览器内将末阶段改成 not_applicable 的合成检查状态下取得，不是原始夹具截图。
 
 **8. 工程组织与测试策略**
 
@@ -294,4 +294,4 @@ CI 可先覆盖 Windows + Linux、当前承诺的最低 Node 版本和一个受�
 
 图中文字与连线含义也依赖清单质量。当前夹具直接使用 api/worker/audit 三个简短节点，不能把这个样例的内容简略归因于模板，也不能用它证明复杂架构图已经足够易读。下一次前端验收应加入多模块、长中文标签、多条业务链、失败恢复和多证据来源的代表性样例。
 
-截图：[桌面总览](../../tmp-review-20260928/frontend-overview.png)、[证据弹窗](../../tmp-review-20260928/frontend-evidence.png)、[证据索引](../../tmp-review-20260928/frontend-catalog.png)、[手机流程](../../tmp-review-20260928/frontend-mobile.png)。检查脚本：[frontend-check.js](../../tmp-review-20260928/frontend-check.js)。
+截图：[桌面总览](../../../tmp-review-20260928/frontend-overview.png)、[证据弹窗](../../../tmp-review-20260928/frontend-evidence.png)、[证据索引](../../../tmp-review-20260928/frontend-catalog.png)、[手机流程](../../../tmp-review-20260928/frontend-mobile.png)。检查脚本：[frontend-check.js](../../../tmp-review-20260928/frontend-check.js)。

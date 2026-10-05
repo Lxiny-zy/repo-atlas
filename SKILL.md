@@ -99,6 +99,6 @@ node <skill-dir>/scripts/verify.mjs <report.html> --playwright <installed-playwr
 
 人工检查总览、最密集数据图、流程说明、发现项与覆盖矩阵，以及桌面和手机截图。重点检查字体过小、连线压字、裁切、空白失衡、术语不一致、流程是否能用自然语言读懂，以及结论与证据不匹配。浏览器通过只证明报告可用，不能替代对业务结论的复核。
 
-可用 `--browser chromium|firefox|webkit` 指定验证引擎；分别报告实际运行结果。Windows WebKit 会在阻断 HTTP 请求的前提下先加载本地文件，再启用离线模拟，此差异会记入结果。不要将引擎验证描述为真实 Safari/iPhone 测试。
+可用 `--browser chromium|firefox|webkit` 指定验证引擎；分别报告实际运行结果。WebKit 会在阻断 HTTP 请求的前提下先加载本地文件，再启用离线模拟，此差异会记入结果。不要将引擎验证描述为真实 Safari/iPhone 测试。
 
 交付可直接打开的 HTML、可维护的 `atlas.json`，以及需要持续维护时的 `.repo-atlas/snapshot.json` 与 `delta.json`；说明覆盖范围、实际验证、最重要的已确认结论、未确认项和增量复核范围。不要为套模板新增迁移方案、专项风险审计或规划需求。需要复制提示词到其他工具时，再提供 [可复制提示词.md](references/可复制提示词.md)。

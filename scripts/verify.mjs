@@ -45,9 +45,9 @@ await mkdir(artifactDirectory, { recursive: true });
 const result = { report: html, browser: launched.channel, status: 'running', diagrams: [], checks: [], mobile: [], layout: [], errors: [] };
 const errors = [];
 const externalRequests = [];
-// Windows WebKit fails local navigation when offline emulation is already on.
+// WebKit can fail local navigation when offline emulation is already on.
 // Block HTTP throughout, load the real file, then enable offline emulation.
-const delayedOffline = requestedBrowser === 'webkit' && process.platform === 'win32';
+const delayedOffline = requestedBrowser === 'webkit';
 const documentUrl = pathToFileURL(html).href;
 result.documentTransport = 'file';
 result.offlineEmulation = delayedOffline ? 'after local file navigation; HTTP blocked throughout' : 'before navigation';

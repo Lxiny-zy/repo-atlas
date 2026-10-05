@@ -32,7 +32,7 @@
 
 ### P1：compare 的输出可以覆盖输入清单
 
-位置：[scripts/compare.mjs:88](../../scripts/compare.mjs#L88)。
+位置：[scripts/compare.mjs:88](../../../scripts/compare.mjs#L88)。
 
 该命令直接调用 `writeFile(resolve(options.output), ...)`，没有复用其他命令的输出路径规划和原子写入保护。
 
@@ -50,7 +50,7 @@ node scripts/compare.mjs base.json head.json --output base.json
 
 ### P1：compare 会漏报任意 JSON 配置中的同名业务字段
 
-位置：[scripts/compare.mjs:26](../../scripts/compare.mjs#L26)，尤其递归 `clone()` 的字段排除逻辑；契约见 `schemas/atlas.schema.json` 中 `$defs.flag.properties.value`。
+位置：[scripts/compare.mjs:26](../../../scripts/compare.mjs#L26)，尤其递归 `clone()` 的字段排除逻辑；契约见 `schemas/atlas.schema.json` 中 `$defs.flag.properties.value`。
 
 `flags[].value` 允许任意 JSON，但 `clone()` 在所有递归层级都会过滤 `workspace`、`output`、`update`、`review`、`$schema` 及部分运行期字段，没有区分这些名称所处的语义位置。
 

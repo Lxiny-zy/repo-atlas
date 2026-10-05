@@ -28,8 +28,8 @@
 
 ## 文档与开源维护
 
-- 重写 [中文 README](../../README.md)，新增独立 [英文 README](../../README.en.md)，两者包含可直接运行的示例、完整增量复核路径、路径基准与产品边界。
-- 新增 [CLI 参考](../cli.md) 和 [开发架构说明](../architecture.md)，同步 SKILL 与 CHANGELOG。
+- 重写 [中文 README](../../../README.md)，新增独立 [英文 README](../../../README.en.md)，两者包含可直接运行的示例、完整增量复核路径、路径基准与产品边界。
+- 新增 [CLI 参考](../../cli.md) 和 [开发架构说明](../../architecture.md)，同步 SKILL 与 CHANGELOG。
 - 扩充 CONTRIBUTING 和 SECURITY，提供实际安装/验证命令、兼容性约束与可用的私密报告路径说明；没有编造安全邮箱、维护 SLA 或版本支持承诺。
 - 新增 Issue 表单、PR 模板、EditorConfig、Git 换行策略和 Dependabot 配置。
 - 开发依赖固定为 Ajv 8.20.0、Playwright 1.58.2，提交 npm v3 锁文件，CI 使用 `npm ci`；生成器仍不依赖这两个包。
