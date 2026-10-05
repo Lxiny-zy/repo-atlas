@@ -5,9 +5,9 @@
 [![CI](https://github.com/Lxiny-zy/repo-atlas/actions/workflows/ci.yml/badge.svg)](https://github.com/Lxiny-zy/repo-atlas/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-[中文](README.md) · [CLI reference](docs/cli.md) · [Manifest contract](references/manifest-format.md) · [Contributing](CONTRIBUTING.md)
+[中文](../README.md) · [CLI reference](cli.md) · [Manifest contract](manifest-format.md) · [Contributing](../.github/CONTRIBUTING.md)
 
-![Chinese order-journey report: purpose and business flows before implementation details](examples/order-journey/desktop.png)
+![Chinese order-journey report: purpose and business flows before implementation details](../examples/order-journey/desktop.png)
 
 repo-atlas turns a human-authored or AI-assisted `atlas.json` into a self-contained HTML report. Readers can trace modules, business chains, data objects and findings back to source excerpts. Snapshots, incremental diffs and explicit reviews keep that knowledge maintainable after the code changes.
 
@@ -26,7 +26,7 @@ node scripts/build.mjs examples/order-journey/atlas.json
 
 Open `examples/order-journey/report.html` directly. This Chinese-language demonstration explains placing and cancelling an order, with source details available on demand. Its synthetic source explicitly leaves payment, shipping and persistent storage outside the demonstrated behavior. To rebuild an existing output, add `--replace`.
 
-The [reader-experience guide](references/analysis-guide.md#面向读者的表达) describes how to write business-oriented titles, stages and conclusions while keeping function names and file paths in evidence details.
+The [reader-experience guide](analysis-guide.md#面向读者的表达) describes how to write business-oriented titles, stages and conclusions while keeping function names and file paths in evidence details.
 
 For the complete multi-chain example:
 
@@ -51,7 +51,7 @@ Coverage counts applicable stages only. Relationship navigation describes author
 
 ## Map your own project
 
-1. Read the [manifest contract](references/manifest-format.md) and start from [atlas.example.json](schemas/atlas.example.json).
+1. Read the [manifest contract](manifest-format.md) and start from [atlas.example.json](../schemas/atlas.example.json).
 2. Set `workspace` relative to the manifest's directory. Source paths, file groups and `output` are relative to that workspace.
 3. Select real source evidence, explain the scope and record uncertainties.
 4. Validate, then build.
@@ -63,11 +63,11 @@ node /path/to/repo-atlas/scripts/build.mjs docs/architecture/atlas.json
 
 For `your-project/docs/architecture/atlas.json`, use `workspace: "../.."` and, for example, `output: "docs/architecture/report.html"`. Replace the executable paths on Windows and quote paths containing spaces.
 
-VS Code associations are included. External manifests may point `$schema` at the local [JSON Schema](schemas/atlas.schema.json). CLI validation always uses bundled rules and never fetches that address.
+Manifests may point `$schema` at the local [JSON Schema](../schemas/atlas.schema.json). CLI validation always uses bundled rules and never fetches that address.
 
 ### Agent skill
 
-The repository includes [SKILL.md](SKILL.md), display metadata and scripts. Place the complete directory in a skill location supported by your host, following that host's installation instructions. The Node CLI also works independently.
+The repository includes [SKILL.md](../SKILL.md), display metadata and scripts. Place the complete directory in a skill location supported by your host, following that host's installation instructions. The Node CLI also works independently.
 
 Example request:
 
@@ -103,7 +103,7 @@ After actually reviewing the tasks, fill in `reviewer`, timezone-qualified `revi
 node scripts/accept.mjs path/to/atlas.next.json --review .repo-atlas/review.json
 ```
 
-The new version directory contains `atlas.json`, `snapshot.json`, `report.html`, `review.json` and `delivery.json`. Existing manifests, baselines and versions remain protected. Continue with the accepted manifest and explicitly select its snapshot using `--from`; see the [CLI reference](docs/cli.md).
+The new version directory contains `atlas.json`, `snapshot.json`, `report.html`, `review.json` and `delivery.json`. Existing manifests, baselines and versions remain protected. Continue with the accepted manifest and explicitly select its snapshot using `--from`; see the [CLI reference](cli.md).
 
 Missing or ambiguous evidence blocks acceptance. `build.mjs --review` creates a clearly labeled review preview. Candidate, source or baseline drift invalidates previous review bindings.
 
@@ -133,7 +133,7 @@ Optional browser verification requires separately installed Playwright and match
 node scripts/verify.mjs tests/fixtures/multi-chain/report.html --playwright /path/to/playwright/index.mjs --browser chromium
 ```
 
-The verifier never installs packages or browsers. WebKit's offline-emulation timing difference is recorded in results. Engine checks do not validate real Safari/iPhone devices. See [CONTRIBUTING.md](CONTRIBUTING.md) for a reproducible development setup and richer benchmark scenarios.
+The verifier never installs packages or browsers. WebKit's offline-emulation timing difference is recorded in results. Engine checks do not validate real Safari/iPhone devices. See [CONTRIBUTING.md](../.github/CONTRIBUTING.md) for a reproducible development setup and richer benchmark scenarios.
 
 ## Boundaries and compatibility
 
@@ -141,13 +141,13 @@ The verifier never installs packages or browsers. WebKit's offline-emulation tim
 - `redact` performs literal masking, not automatic secret detection. Inspect manifests and excerpts before sharing.
 - Snapshot v2 retains sanitized historical excerpts and per-repository baselines. Upgrading from v1 or relocating a workspace requires source review and a new baseline.
 - Reports contain selected source snippets. Distribute them under the same access constraints as the source itself.
-- See [package.json](package.json) for the current package version and [CHANGELOG.md](CHANGELOG.md) for unreleased changes.
+- See [package.json](../package.json) for the current package version and [CHANGELOG.md](CHANGELOG.md) for unreleased changes.
 
 ## Project resources
 
-- [Architecture and extension boundaries](docs/architecture.md)
-- [Analysis and writing guide](references/analysis-guide.md) / [Code of conduct](CODE_OF_CONDUCT.md)
-- [Contributing](CONTRIBUTING.md) / [Security reporting](SECURITY.md)
-- [MIT license](LICENSE) / [Third-party notices](THIRD-PARTY-NOTICES.md)
+- [Architecture and extension boundaries](architecture.md)
+- [Analysis and writing guide](analysis-guide.md) / [Code of conduct](../.github/CODE_OF_CONDUCT.md)
+- [Contributing](../.github/CONTRIBUTING.md) / [Security reporting](../.github/SECURITY.md)
+- [MIT license](../LICENSE) / [Third-party notices](THIRD-PARTY-NOTICES.md)
 
 Use [GitHub Issues](https://github.com/Lxiny-zy/repo-atlas/issues) for bugs and suggestions. Include a small synthetic reproduction, expected/actual behavior and environment details, without private source or sensitive report excerpts.
