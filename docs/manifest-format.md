@@ -6,7 +6,7 @@
 
 ## 编辑器与批量校验
 
-[schemas/atlas.schema.json](../schemas/atlas.schema.json) 使用 JSON Schema draft 2020-12，覆盖项目、模块、视图、链路/阶段、证据、发现项、覆盖项及各类索引。仓库的 `.vscode/settings.json` 已关联 `atlas.json` 和 `atlas.next.json`。也可在清单顶层添加 `$schema`，值为相对清单的 Schema 文件路径，或编辑器可读取的绝对文件地址；CLI 始终使用随工具提供的 Schema，不下载或执行用户指定的地址。
+[schemas/atlas.schema.json](../schemas/atlas.schema.json) 使用 JSON Schema draft 2020-12，覆盖项目、模块、视图、链路/阶段、证据、发现项、覆盖项及各类索引。在清单顶层添加 `$schema`，值为相对清单的 Schema 文件路径，或编辑器可读取的绝对文件地址；CLI 始终使用随工具提供的 Schema，不下载或执行用户指定的地址。
 
 ```text
 node scripts/validate.mjs first/atlas.json second/atlas.json --json

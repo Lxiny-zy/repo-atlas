@@ -3,7 +3,7 @@ description: Report incorrect behavior with a small synthetic reproduction.
 body:
   - type: markdown
     attributes:
-      value: "Use synthetic data. Do not attach private source, secrets or production reports. See SECURITY.md for sensitive reports."
+      value: "Use synthetic data. Do not attach private source, secrets or production reports. See the repository Security policy for sensitive reports."
   - type: textarea
     id: environment
     attributes:

@@ -43,7 +43,7 @@ node scripts/build.mjs examples/order-journey/atlas.json
 node scripts/verify-reader.mjs examples/order-journey/report.html --browser chromium
 ```
 
-Review the homepage and a complete flow without opening code: purpose, inputs, outcomes and unknowns should remain understandable. Follow the [reader-experience guide](references/analysis-guide.md#面向读者的表达). The demonstration screenshot used by the READMEs lives at `examples/order-journey/desktop.png`; update it deliberately when the displayed design changes.
+Review the homepage and a complete flow without opening code: purpose, inputs, outcomes and unknowns should remain understandable. Follow the [reader-experience guide](../docs/analysis-guide.md#面向读者的表达). The demonstration screenshot used by the READMEs lives at `examples/order-journey/desktop.png`; update it deliberately when the displayed design changes.
 
 ## Performance changes
 
@@ -58,8 +58,8 @@ The second scenario adds evidence density, overlapping groups and a local Git ba
 
 ## Implementation conventions
 
-- Follow `.editorconfig`, existing ES modules and two-space indentation. Avoid unrelated formatting changes.
-- Prefer shared evidence, path, CLI and review primitives; see [architecture](docs/architecture.md).
+- Use UTF-8, LF line endings, ES modules and two-space indentation. Avoid unrelated formatting changes.
+- Prefer shared evidence, path, CLI and review primitives; see [architecture](../docs/architecture.md).
 - Keep runtime builds dependency-free and the report fully offline. Explain any change to that contract.
 - For user-controlled JSON, preserve arbitrary business keys. Do not recursively strip metadata names outside their schema-defined locations.
 - For filesystem changes, verify canonical containment and input identities; use atomic writes and explicit replacement policies.
@@ -76,13 +76,13 @@ Before publishing a release, verify CI, align the package version and lockfile w
 
 Lead with the concrete problem and resulting behavior. Include checks actually run, compatibility effects and any validation gaps. Keep changes reviewable; explain performance/complexity tradeoffs.
 
-User-facing changes belong in `CHANGELOG.md` under Unreleased. Keep [README.md](README.md) and [README.en.md](README.en.md) aligned; detailed path/overwrite behavior belongs in [CLI reference](docs/cli.md). Update [SKILL.md](SKILL.md), schema, examples and [manifest contract](references/manifest-format.md) when relevant.
+User-facing changes belong in `docs/CHANGELOG.md` under Unreleased. Keep [README.md](../README.md) and [README.en.md](../docs/README.en.md) aligned; detailed path/overwrite behavior belongs in [CLI reference](../docs/cli.md). Update [SKILL.md](../SKILL.md), schema, examples and [manifest contract](../docs/manifest-format.md) when relevant.
 
 Keep the working tree focused on current documentation. Use Git history for dated assessments and superseded delivery notes; do not add per-session reports or checked-in test logs. Tests protect behavior and belong in `tests/`; generated test artifacts stay ignored.
 
 New manifest fields should remain backward compatible or include a migration path. Snapshot changes must explain whether old baselines can be reused. Do not increment a release version solely because a PR is ready; release preparation is a separate maintainer action.
 
-Do not commit generated snapshots, screenshots, business source, credentials or private report contents. Vendor updates must preserve licenses in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), identify upstream versions and pass offline browser checks.
+Do not commit generated snapshots, screenshots, business source, credentials or private report contents. Vendor updates must preserve licenses in [THIRD-PARTY-NOTICES.md](../docs/THIRD-PARTY-NOTICES.md), identify upstream versions and pass offline browser checks.
 
 ## Reporting issues
 

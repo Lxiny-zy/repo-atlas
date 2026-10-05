@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Simplified the repository root: consolidated reference documents under docs/, moved community policies into .github/, and removed optional editor-specific configuration. Runtime entry points remain unchanged.
+
 - Removed dated review artifacts and redundant navigation/prompt documents from the working tree; retained history in Git and consolidated current writing/maintenance guidance. Regression tests and report examples remain available.
 
 ### Repository maintenance

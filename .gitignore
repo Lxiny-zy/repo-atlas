@@ -13,8 +13,7 @@ atlas.next.json
 
 # Local editor and operating-system files
 .idea/
-.vscode/*
-!.vscode/settings.json
+.vscode/
 *.swp
 Thumbs.db
 .DS_Store

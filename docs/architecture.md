@@ -46,4 +46,4 @@ Use the shared CLI parser with explicit boolean/value options and positional cou
 
 For manifest changes, update schema, runtime normalization, editor/example coverage and reference validation together. Consider snapshots, semantic comparison, review task bindings, redaction and report rendering, not just build success. If a persisted format changes, document a migration or explicit baseline recreation requirement.
 
-Testing guidance and the local CI equivalents are in [CONTRIBUTING.md](../CONTRIBUTING.md). Frontend logic remains in `assets/report/app.js`; splitting it should follow identifiable responsibilities and preserve the three-browser interaction checks, rather than adding a bundler solely to increase module count.
+Testing guidance and the local CI equivalents are in [CONTRIBUTING.md](../.github/CONTRIBUTING.md). Frontend logic remains in `assets/report/app.js`; splitting it should follow identifiable responsibilities and preserve the three-browser interaction checks, rather than adding a bundler solely to increase module count.

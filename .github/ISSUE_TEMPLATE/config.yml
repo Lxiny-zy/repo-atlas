@@ -4,5 +4,5 @@ contact_links:
     url: https://github.com/Lxiny-zy/repo-atlas#readme
     about: Start with the quick start, command reference and writing guide.
   - name: Security reporting / 安全报告
-    url: https://github.com/Lxiny-zy/repo-atlas/blob/main/SECURITY.md
+    url: https://github.com/Lxiny-zy/repo-atlas/blob/main/.github/SECURITY.md
     about: Do not post sensitive source or exploit details in a public issue.

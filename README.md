@@ -5,7 +5,7 @@
 [![CI](https://github.com/Lxiny-zy/repo-atlas/actions/workflows/ci.yml/badge.svg)](https://github.com/Lxiny-zy/repo-atlas/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-[English](README.en.md) · [命令参考](docs/cli.md) · [清单格式](references/manifest-format.md) · [参与贡献](CONTRIBUTING.md)
+[English](docs/README.en.md) · [命令参考](docs/cli.md) · [清单格式](docs/manifest-format.md) · [参与贡献](.github/CONTRIBUTING.md)
 
 ![订单业务报告预览：先解释全貌，再按场景阅读](examples/order-journey/desktop.png)
 
@@ -26,7 +26,7 @@ node scripts/build.mjs examples/order-journey/atlas.json
 
 直接打开 `examples/order-journey/report.html`，体验“提交购买”和“取消订单”两个中文场景。先读业务过程和结论，需要核对实现时再展开源码。示例使用仓库内的合成源码，明确保留支付、物流和长期存储尚未覆盖的边界。再次构建同一输出需追加 `--replace`。
 
-编写自己的报告前，可参考[读者体验与表达约束](references/analysis-guide.md#面向读者的表达)：用业务名称组织标题与阶段，函数、路径和字段保留在定位细节中。
+编写自己的报告前，可参考[读者体验与表达约束](docs/analysis-guide.md#面向读者的表达)：用业务名称组织标题与阶段，函数、路径和字段保留在定位细节中。
 
 想体验完整的多链路报告：
 
@@ -51,7 +51,7 @@ node scripts/build.mjs tests/fixtures/multi-chain/atlas.json
 
 ## 用于自己的项目
 
-1. 阅读[清单格式](references/manifest-format.md)，参考 [atlas.example.json](schemas/atlas.example.json) 创建项目文档目录下的 `atlas.json`。
+1. 阅读[清单格式](docs/manifest-format.md)，参考 [atlas.example.json](schemas/atlas.example.json) 创建项目文档目录下的 `atlas.json`。
 2. 设置 `workspace`，它**相对清单所在目录**解析；证据路径、文件分组和 `output` 均相对 workspace。
 3. 为模块、链路与结论选择少量真实源码证据，写明分析边界和未确认项。
 4. 先校验，再构建。
@@ -63,7 +63,7 @@ node /path/to/repo-atlas/scripts/build.mjs docs/architecture/atlas.json
 
 例如清单位于 `your-project/docs/architecture/atlas.json`，可以设置 `workspace: "../.."`、`output: "docs/architecture/report.html"`。在 Windows 上将命令中的工具路径替换成实际路径，含空格时加引号。
 
-仓库为 VS Code 提供 JSON Schema 关联；外部清单可以通过 `$schema` 指向本地 [atlas.schema.json](schemas/atlas.schema.json)。CLI 始终使用随工具分发的规则，不访问该地址。
+清单可以通过 `$schema` 指向本地 [atlas.schema.json](schemas/atlas.schema.json)。CLI 始终使用随工具分发的规则，不访问该地址。
 
 ### 作为 Agent 技能
 
@@ -133,7 +133,7 @@ node scripts/benchmark.mjs --scales 1000,10000
 node scripts/verify.mjs tests/fixtures/multi-chain/report.html --playwright /path/to/playwright/index.mjs --browser chromium
 ```
 
-验证器不安装依赖或下载浏览器。WebKit 的离线模拟时序差异会写入验证结果；引擎验证不等于真实 Safari/iPhone 验收。复现开发环境及扩展基准场景见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+验证器不安装依赖或下载浏览器。WebKit 的离线模拟时序差异会写入验证结果；引擎验证不等于真实 Safari/iPhone 验收。复现开发环境及扩展基准场景见 [CONTRIBUTING.md](.github/CONTRIBUTING.md)。
 
 ## 边界与兼容性
 
@@ -141,13 +141,13 @@ node scripts/verify.mjs tests/fixtures/multi-chain/report.html --playwright /pat
 - `redact` 是字面脱敏机制，不是自动秘密检测；分享报告前检查清单与摘录。
 - 快照 v2 保存脱敏历史摘录及逐仓库基线；从 v1 升级或迁移 workspace 后，需要复核源码并重建基线。
 - 生成器、报告和增量工具均在本地工作。报告包含选定的源码片段，应按源码本身的访问范围分发。
-- 当前发布版本见 [package.json](package.json)，尚未发布的变化见 [CHANGELOG.md](CHANGELOG.md)。
+- 当前发布版本见 [package.json](package.json)，尚未发布的变化见 [CHANGELOG.md](docs/CHANGELOG.md)。
 
 ## 项目导航
 
 - [架构与扩展边界](docs/architecture.md)
-- [分析与写作指南](references/analysis-guide.md) / [行为准则](CODE_OF_CONDUCT.md)
-- [贡献流程](CONTRIBUTING.md) / [安全报告](SECURITY.md)
-- [MIT 许可证](LICENSE) / [第三方声明](THIRD-PARTY-NOTICES.md)
+- [分析与写作指南](docs/analysis-guide.md) / [行为准则](.github/CODE_OF_CONDUCT.md)
+- [贡献流程](.github/CONTRIBUTING.md) / [安全报告](.github/SECURITY.md)
+- [MIT 许可证](LICENSE) / [第三方声明](docs/THIRD-PARTY-NOTICES.md)
 
 问题与建议请使用 [GitHub Issues](https://github.com/Lxiny-zy/repo-atlas/issues)，附最小合成示例、实际结果和运行环境；避免上传业务源码或生成报告中的敏感摘录。
