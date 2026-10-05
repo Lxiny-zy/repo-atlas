@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Usage and documentation / 使用与文档
+    url: https://github.com/Lxiny-zy/repo-atlas/blob/main/docs/README.md
+    about: Start with the quick start, command reference and writing guide.
+  - name: Security reporting / 安全报告
+    url: https://github.com/Lxiny-zy/repo-atlas/blob/main/SECURITY.md
+    about: Do not post sensitive source or exploit details in a public issue.

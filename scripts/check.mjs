@@ -20,7 +20,7 @@ for (const path of sources) {
   const result = spawnSync(process.execPath, ['--check', path], { encoding: 'utf8', windowsHide: true });
   if (result.status !== 0) { failures++; console.error(result.stderr || result.error?.message || `Syntax check failed: ${path}`); }
 }
-const documents = ['README.md', 'README.en.md', 'CONTRIBUTING.md', 'SECURITY.md', 'CHANGELOG.md', 'SKILL.md', 'docs/cli.md', 'docs/architecture.md'];
+const documents = ['README.md', 'README.en.md', 'CONTRIBUTING.md', 'CODE_OF_CONDUCT.md', 'SECURITY.md', 'CHANGELOG.md', 'SKILL.md', 'docs/README.md', 'docs/cli.md', 'docs/architecture.md', 'docs/maintaining.md', 'docs/archive/README.md', 'examples/order-journey/README.md'];
 documents.push(...(await walk(resolve(root, 'references'))).filter(path => extname(path) === '.md'));
 let links = 0;
 for (const file of documents) {

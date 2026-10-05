@@ -68,6 +68,8 @@ The second scenario adds evidence density, overlapping groups and a local Git ba
 
 ## Pull requests and documentation
 
+Use a short-lived branch and a focused PR; merge by squash after the required **Quality gate** passes. See [repository maintenance](docs/maintaining.md) for branch cleanup, dependency grouping and release preparation. Follow the [code of conduct](CODE_OF_CONDUCT.md) in project discussions.
+
 Lead with the concrete problem and resulting behavior. Include checks actually run, compatibility effects and any validation gaps. Keep changes reviewable; explain performance/complexity tradeoffs.
 
 User-facing changes belong in `CHANGELOG.md` under Unreleased. Keep [README.md](README.md) and [README.en.md](README.en.md) aligned; detailed path/overwrite behavior belongs in [CLI reference](docs/cli.md). Update [SKILL.md](SKILL.md), schema, examples and [manifest contract](references/manifest-format.md) when relevant.

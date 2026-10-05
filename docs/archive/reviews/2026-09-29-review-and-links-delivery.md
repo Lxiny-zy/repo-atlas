@@ -4,13 +4,13 @@
 
 ## 当前交付
 
-- [review.mjs](../../scripts/review.mjs) 生成与候选、源码、基线及 delta 绑定的复核单。审核人填写身份、时间和逐项决定/说明；已有复核单不会被覆盖。
-- [accept.mjs](../../scripts/accept.mjs) 校验完整任务集合、任务描述、指纹、明确批准和版本一致性，执行严格构建，再整体发布新的版本目录。报告、清单、快照及逐项回执均保留；构建失败时清理暂存目录。原清单、基线和已有版本不被替换。
+- [review.mjs](../../../scripts/review.mjs) 生成与候选、源码、基线及 delta 绑定的复核单。审核人填写身份、时间和逐项决定/说明；已有复核单不会被覆盖。
+- [accept.mjs](../../../scripts/accept.mjs) 校验完整任务集合、任务描述、指纹、明确批准和版本一致性，执行严格构建，再整体发布新的版本目录。报告、清单、快照及逐项回执均保留；构建失败时清理暂存目录。原清单、基线和已有版本不被替换。
 - `build --review` 支持缺失/歧义证据预览。报告显示“仅供复核”、未解析原因；对应 covered/partial 阶段降为 unknown、confirmed 发现项降为 unverified，原声明另存。不会生成假的摘录和行号，也不会放宽路径边界。未解析证据不能通过正式接受。
 - 视图、链路、阶段及证据可复制定位链接。URL 片段支持直接进入、高亮阶段、证据返回、浏览器历史，以及无效或不一致目标提示。证据 source.id 可保持数组重排后的链接身份。
-- [verify.mjs](../../scripts/verify.mjs) 支持 Chromium、Firefox、WebKit，区分普通报告、复核预览和已审核版本；[CI](../../.github/workflows/ci.yml) 扩充了引擎矩阵及三种报告的检查。
+- [verify.mjs](../../../scripts/verify.mjs) 支持 Chromium、Firefox、WebKit，区分普通报告、复核预览和已审核版本；[CI](../../../.github/workflows/ci.yml) 扩充了引擎矩阵及三种报告的检查。
 
-详细使用步骤见 [README](../../README.md) 与[复核契约](../../references/manifest-format.md)。复核记录提供本地声明和版本校验，不提供身份认证或数字签名。
+详细使用步骤见 [README](../../../README.md) 与[复核契约](../../../references/manifest-format.md)。复核记录提供本地声明和版本校验，不提供身份认证或数字签名。
 
 ## 验证结果
 
@@ -34,9 +34,9 @@ Windows WebKit 在导航前启用 Playwright 离线模拟会内部报错。本�
 
 ## 本地查看
 
-- [中文项目预览](../../tmp-frontend-optimized/report.html)，已加入复核与接受模块及源码依据。
-- [已审核版本示例](../../tmp-review-workflow-20260929/accepted/.repo-atlas/accepted/fixture/report.html)。
-- [缺失证据复核预览](../../tmp-review-workflow-20260929/unresolved/report.html)。
+- [中文项目预览](../../../tmp-frontend-optimized/report.html)，已加入复核与接受模块及源码依据。
+- [已审核版本示例](../../../tmp-review-workflow-20260929/accepted/.repo-atlas/accepted/fixture/report.html)。
+- [缺失证据复核预览](../../../tmp-review-workflow-20260929/unresolved/report.html)。
 - [浏览器结果汇总](2026-09-29-browser-results.json)。完整截图及结果位于各报告旁的 `report.verification/<browser>/` 目录。
 
 这些 tmp 文件为本地可复验产物，不纳入正式源码。

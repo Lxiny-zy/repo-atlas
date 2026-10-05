@@ -69,6 +69,18 @@ test('overlapping groups include all extensions and deduplicate files', async t 
   assert.equal(Object.keys(state.files).length, 3);
 });
 
+test('manifest directory aliases refresh beside the canonical input without weakening containment', async t => {
+  const dir = await fixture(t);
+  const alias = `${dir}-alias`;
+  await symlink(dir, alias, process.platform === 'win32' ? 'junction' : 'dir');
+  t.after(() => rm(alias, { recursive: true, force: true }));
+  const bundle = await loadManifest(resolve(alias, 'atlas.json'));
+  assert.equal(bundle.manifestPath, resolve(await realpath(dir), 'atlas.json'));
+  snapshot(dir); delta(dir);
+  run(dir, 'refresh.mjs', resolve(alias, 'atlas.json'));
+  assert.ok(await read(dir, 'atlas.next.json'));
+});
+
 test('unowned file changes require review; module paths map uncited files', async t => {
   const dir = await fixture(t);
   await writeFile(resolve(dir, 'src/helper.js'), 'one');

@@ -5,7 +5,7 @@
 [![CI](https://github.com/Lxiny-zy/repo-atlas/actions/workflows/ci.yml/badge.svg)](https://github.com/Lxiny-zy/repo-atlas/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-[中文](README.md) · [CLI reference](docs/cli.md) · [Manifest contract](references/manifest-format.md) · [Contributing](CONTRIBUTING.md)
+[中文](README.md) · [Documentation](docs/README.md) · [CLI reference](docs/cli.md) · [Manifest contract](references/manifest-format.md) · [Contributing](CONTRIBUTING.md)
 
 ![Chinese order-journey report: purpose and business flows before implementation details](examples/order-journey/desktop.png)
 
@@ -133,7 +133,7 @@ Optional browser verification requires separately installed Playwright and match
 node scripts/verify.mjs tests/fixtures/multi-chain/report.html --playwright /path/to/playwright/index.mjs --browser chromium
 ```
 
-The verifier never installs packages or browsers. Windows WebKit's offline-emulation timing difference is recorded in results. Engine checks do not validate real Safari/iPhone devices. See [CONTRIBUTING.md](CONTRIBUTING.md) for a reproducible development setup and richer benchmark scenarios.
+The verifier never installs packages or browsers. WebKit's offline-emulation timing difference is recorded in results. Engine checks do not validate real Safari/iPhone devices. See [CONTRIBUTING.md](CONTRIBUTING.md) for a reproducible development setup and richer benchmark scenarios.
 
 ## Boundaries and compatibility
 
@@ -146,6 +146,7 @@ The verifier never installs packages or browsers. Windows WebKit's offline-emula
 ## Project resources
 
 - [Architecture and extension boundaries](docs/architecture.md)
+- [Repository maintenance](docs/maintaining.md) / [Code of conduct](CODE_OF_CONDUCT.md)
 - [Analysis guide](references/analysis-guide.md) / [Reusable prompts](references/可复制提示词.md)
 - [Contributing](CONTRIBUTING.md) / [Security reporting](SECURITY.md)
 - [MIT license](LICENSE) / [Third-party notices](THIRD-PARTY-NOTICES.md)

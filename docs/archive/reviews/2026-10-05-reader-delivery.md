@@ -12,7 +12,7 @@ node scripts/build.mjs examples/order-journey/atlas.json --replace
 
 双击打开 `examples/order-journey/report.html`。它无需网络或本地服务器，包含“提交一笔购买”和“取消一笔订单”两个中文场景。示例来自同目录合成源码，明确说明订单只保存在内存中，付款和发货尚未被证实。
 
-![新版首页](../../examples/order-journey/desktop.png)
+![新版首页](../../../examples/order-journey/desktop.png)
 
 ## 阅读体验的变化
 
@@ -31,7 +31,7 @@ node scripts/build.mjs examples/order-journey/atlas.json --replace
 
 ## 后续报告也沿用同一标准
 
-[读者体验与表达约束](../../references/reader-experience.md) 已接入技能指令、清单说明、分析指南和可复制提示词。要求报告作者把业务含义写进显示标题与摘要，把函数名、路径和内部标识保留在定位细节中。
+[读者体验与表达约束](../../../references/reader-experience.md) 已接入技能指令、清单说明、分析指南和可复制提示词。要求报告作者把业务含义写进显示标题与摘要，把函数名、路径和内部标识保留在定位细节中。
 
 例如，阶段标题写“有货才预留，没有货就说明原因”，正文解释库存不足时不会创建订单；读者展开依据后仍能找到准确实现。生成器不会凭函数名称自动猜测业务含义。
 

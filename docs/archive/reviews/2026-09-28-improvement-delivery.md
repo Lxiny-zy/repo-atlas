@@ -19,7 +19,7 @@
 | 前端 | 当前内容优先、适用阶段覆盖率、阶段待复核状态、直接证据、行号、弹窗返回、视图历史；50 条索引分页、12 条链路分页、缓存搜索文本、完整复核列表 |
 | 工程 | 18 项新增回归和原有端到端流程；Windows/Linux × Node 18/22/24 CI；独立固定版本 Chromium CI；可重复规模测试脚本 |
 
-主要实现位于 [scripts](../../scripts)、[报告资源](../../assets/report)、[增量回归测试](../../tests/incremental.test.mjs)和 [CI](../../.github/workflows/ci.yml)。接口及迁移细节见[清单契约](../../references/manifest-format.md)。
+主要实现位于 [scripts](../../../scripts)、[报告资源](../../../assets/report)、[增量回归测试](../../../tests/incremental.test.mjs)和 [CI](../../../.github/workflows/ci.yml)。接口及迁移细节见[清单契约](../../../references/manifest-format.md)。
 
 ## 实际验证
 
@@ -27,7 +27,7 @@
 - JS 语法检查和 Git diff 空白检查通过。
 - Chrome：基础夹具和中文项目预览均通过完整验证，浏览器无页面错误、无外部资源请求；覆盖 Mermaid、缩放拖动、SVG/MMD 导出、全屏、证据、历史导航、390/320px 布局。
 - 扩大浏览器数据至 125 文件、25 链路，验证分页末页、筛选重置、320px 分页及 21 条复核记录完整展示。
-- [中文报告](../../tmp-frontend-optimized/report.html)、[中文报告验证结果](../../tmp-frontend-optimized/report.verification/result.json)、[基础夹具验证结果](../../tmp-frontend-optimized/basic/report.verification/result.json)为本地临时交付材料，不纳入正式源码。
+- [中文报告](../../../tmp-frontend-optimized/report.html)、[中文报告验证结果](../../../tmp-frontend-optimized/report.verification/result.json)、[基础夹具验证结果](../../../tmp-frontend-optimized/basic/report.verification/result.json)为本地临时交付材料，不纳入正式源码。
 
 CI 已配置，尚未在远程运行；以上通过结果不代表 Linux、其他 Node 版本或 Firefox/WebKit 已实测。
 

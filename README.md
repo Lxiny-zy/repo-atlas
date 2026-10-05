@@ -5,7 +5,7 @@
 [![CI](https://github.com/Lxiny-zy/repo-atlas/actions/workflows/ci.yml/badge.svg)](https://github.com/Lxiny-zy/repo-atlas/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-[English](README.en.md) · [命令参考](docs/cli.md) · [清单格式](references/manifest-format.md) · [参与贡献](CONTRIBUTING.md)
+[English](README.en.md) · [文档导航](docs/README.md) · [命令参考](docs/cli.md) · [清单格式](references/manifest-format.md) · [参与贡献](CONTRIBUTING.md)
 
 ![订单业务报告预览：先解释全貌，再按场景阅读](examples/order-journey/desktop.png)
 
@@ -133,7 +133,7 @@ node scripts/benchmark.mjs --scales 1000,10000
 node scripts/verify.mjs tests/fixtures/multi-chain/report.html --playwright /path/to/playwright/index.mjs --browser chromium
 ```
 
-验证器不安装依赖或下载浏览器。Windows WebKit 的离线模拟时序差异会写入验证结果；引擎验证不等于真实 Safari/iPhone 验收。复现开发环境及扩展基准场景见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+验证器不安装依赖或下载浏览器。WebKit 的离线模拟时序差异会写入验证结果；引擎验证不等于真实 Safari/iPhone 验收。复现开发环境及扩展基准场景见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 边界与兼容性
 
@@ -146,6 +146,7 @@ node scripts/verify.mjs tests/fixtures/multi-chain/report.html --playwright /pat
 ## 项目导航
 
 - [架构与扩展边界](docs/architecture.md)
+- [仓库维护流程](docs/maintaining.md) / [行为准则](CODE_OF_CONDUCT.md)
 - [分析指南](references/analysis-guide.md) / [可复制提示词](references/可复制提示词.md)
 - [贡献流程](CONTRIBUTING.md) / [安全报告](SECURITY.md)
 - [MIT 许可证](LICENSE) / [第三方声明](THIRD-PARTY-NOTICES.md)

@@ -18,7 +18,7 @@ const browser = await ({ chromium, firefox, webkit })[engine].launch({ headless:
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
 const external = [], errors = [];
 await context.route(/^https?:\/\//, route => { external.push(route.request().url()); return route.abort(); });
-const deferredOffline = process.platform === 'win32' && engine === 'webkit';
+const deferredOffline = engine === 'webkit';
 if (!deferredOffline) await context.setOffline(true);
 const page = await context.newPage();
 page.on('pageerror', error => errors.push(String(error)));

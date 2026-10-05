@@ -1,5 +1,5 @@
 import { readFile, readdir, realpath, stat } from 'node:fs/promises';
-import { dirname, extname, relative, resolve, isAbsolute, sep } from 'node:path';
+import { basename, dirname, extname, relative, resolve, isAbsolute, sep } from 'node:path';
 import { hashBytes, hashText, hashFile, normalizeSource, redactionValues, redactionHash, redactText, redactValue, resolveEvidence, sourceReader } from './evidence-lib.mjs';
 import { inside } from './io-lib.mjs';
 import { gitInfo } from './git-lib.mjs';
@@ -34,7 +34,9 @@ const validateRelativePath = value => {
 };
 
 export async function loadManifest(manifestPath) {
-  const absolute = resolve(manifestPath);
+  // Canonicalize the directory, not the file: preserve relative-path semantics
+  // for an explicitly selected file symlink while resolving junctions/8.3 paths.
+  const absolute = resolve(await realpath(dirname(resolve(manifestPath))), basename(manifestPath));
   const raw = await readFile(absolute, 'utf8');
   const manifest = JSON.parse(raw.replace(/^\uFEFF/, ''));
   assertManifest(manifest);
