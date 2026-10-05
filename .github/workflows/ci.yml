@@ -52,7 +52,7 @@ jobs:
       - run: node scripts/verify.mjs tmp-review-ci/accepted/.repo-atlas/accepted/fixture/report.html --browser ${{ matrix.browser }}
       - run: node scripts/build.mjs examples/order-journey/atlas.json
       - run: node scripts/verify-reader.mjs examples/order-journey/report.html --browser ${{ matrix.browser }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: browser-verification-${{ matrix.browser }}
