@@ -43,7 +43,7 @@ node scripts/build.mjs examples/order-journey/atlas.json
 node scripts/verify-reader.mjs examples/order-journey/report.html --browser chromium
 ```
 
-Review the homepage and a complete flow without opening code: purpose, inputs, outcomes and unknowns should remain understandable. Follow the [reader-experience guide](references/reader-experience.md). The demonstration screenshot used by the READMEs lives at `examples/order-journey/desktop.png`; update it deliberately when the displayed design changes.
+Review the homepage and a complete flow without opening code: purpose, inputs, outcomes and unknowns should remain understandable. Follow the [reader-experience guide](references/analysis-guide.md#面向读者的表达). The demonstration screenshot used by the READMEs lives at `examples/order-journey/desktop.png`; update it deliberately when the displayed design changes.
 
 ## Performance changes
 
@@ -68,11 +68,17 @@ The second scenario adds evidence density, overlapping groups and a local Git ba
 
 ## Pull requests and documentation
 
-Use a short-lived branch and a focused PR; merge by squash after the required **Quality gate** passes. See [repository maintenance](docs/maintaining.md) for branch cleanup, dependency grouping and release preparation. Follow the [code of conduct](CODE_OF_CONDUCT.md) in project discussions.
+Use a short-lived `feat/`, `fix/`, `docs/` or `chore/` branch and a focused PR; merge by squash after the required **Quality gate** passes and review conversations are resolved. `main` is the only long-lived branch. Delete merged or explicitly superseded branches, not a contributor's independent work. Follow the [code of conduct](CODE_OF_CONDUCT.md).
+
+Dependency updates run monthly and are grouped. Actions use pinned commits. Playwright minor/major updates are reviewed manually alongside the Node support policy: Playwright 1.63 requires Node 20, while the project retains Node 18 compatibility.
+
+Before publishing a release, verify CI, align the package version and lockfile with release notes, document compatibility changes, and then create the matching tag and release. Do not publish versions as part of routine housekeeping.
 
 Lead with the concrete problem and resulting behavior. Include checks actually run, compatibility effects and any validation gaps. Keep changes reviewable; explain performance/complexity tradeoffs.
 
 User-facing changes belong in `CHANGELOG.md` under Unreleased. Keep [README.md](README.md) and [README.en.md](README.en.md) aligned; detailed path/overwrite behavior belongs in [CLI reference](docs/cli.md). Update [SKILL.md](SKILL.md), schema, examples and [manifest contract](references/manifest-format.md) when relevant.
+
+Keep the working tree focused on current documentation. Use Git history for dated assessments and superseded delivery notes; do not add per-session reports or checked-in test logs. Tests protect behavior and belong in `tests/`; generated test artifacts stay ignored.
 
 New manifest fields should remain backward compatible or include a migration path. Snapshot changes must explain whether old baselines can be reused. Do not increment a release version solely because a PR is ready; release preparation is a separate maintainer action.
 

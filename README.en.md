@@ -5,7 +5,7 @@
 [![CI](https://github.com/Lxiny-zy/repo-atlas/actions/workflows/ci.yml/badge.svg)](https://github.com/Lxiny-zy/repo-atlas/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-[中文](README.md) · [Documentation](docs/README.md) · [CLI reference](docs/cli.md) · [Manifest contract](references/manifest-format.md) · [Contributing](CONTRIBUTING.md)
+[中文](README.md) · [CLI reference](docs/cli.md) · [Manifest contract](references/manifest-format.md) · [Contributing](CONTRIBUTING.md)
 
 ![Chinese order-journey report: purpose and business flows before implementation details](examples/order-journey/desktop.png)
 
@@ -26,7 +26,7 @@ node scripts/build.mjs examples/order-journey/atlas.json
 
 Open `examples/order-journey/report.html` directly. This Chinese-language demonstration explains placing and cancelling an order, with source details available on demand. Its synthetic source explicitly leaves payment, shipping and persistent storage outside the demonstrated behavior. To rebuild an existing output, add `--replace`.
 
-The [reader-experience guide](references/reader-experience.md) describes how to write business-oriented titles, stages and conclusions while keeping function names and file paths in evidence details.
+The [reader-experience guide](references/analysis-guide.md#面向读者的表达) describes how to write business-oriented titles, stages and conclusions while keeping function names and file paths in evidence details.
 
 For the complete multi-chain example:
 
@@ -146,8 +146,7 @@ The verifier never installs packages or browsers. WebKit's offline-emulation tim
 ## Project resources
 
 - [Architecture and extension boundaries](docs/architecture.md)
-- [Repository maintenance](docs/maintaining.md) / [Code of conduct](CODE_OF_CONDUCT.md)
-- [Analysis guide](references/analysis-guide.md) / [Reusable prompts](references/可复制提示词.md)
+- [Analysis and writing guide](references/analysis-guide.md) / [Code of conduct](CODE_OF_CONDUCT.md)
 - [Contributing](CONTRIBUTING.md) / [Security reporting](SECURITY.md)
 - [MIT license](LICENSE) / [Third-party notices](THIRD-PARTY-NOTICES.md)
 

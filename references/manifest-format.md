@@ -2,7 +2,7 @@
 
 生成器执行指定证据的提取与索引统计，不从目录自动推断业务架构。输入使用 UTF-8 JSON，不使用可执行 JavaScript 配置。
 
-`name`、`title`、`label`、`summary`、`trigger`、`outcome` 是直接给读者看的内容，应使用业务语言；稳定 `id`、证据路径和函数锚点承担技术定位。具体写法见 [读者体验与表达约束](reader-experience.md)，完整中文示例见 [订单业务清单](../examples/order-journey/atlas.json)。
+`name`、`title`、`label`、`summary`、`trigger`、`outcome` 是直接给读者看的内容，应使用业务语言；稳定 `id`、证据路径和函数锚点承担技术定位。具体写法见 [读者体验与表达约束](analysis-guide.md#面向读者的表达)，完整中文示例见 [订单业务清单](../examples/order-journey/atlas.json)。
 
 ## 编辑器与批量校验
 

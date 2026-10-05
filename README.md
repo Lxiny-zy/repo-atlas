@@ -5,7 +5,7 @@
 [![CI](https://github.com/Lxiny-zy/repo-atlas/actions/workflows/ci.yml/badge.svg)](https://github.com/Lxiny-zy/repo-atlas/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-[English](README.en.md) · [文档导航](docs/README.md) · [命令参考](docs/cli.md) · [清单格式](references/manifest-format.md) · [参与贡献](CONTRIBUTING.md)
+[English](README.en.md) · [命令参考](docs/cli.md) · [清单格式](references/manifest-format.md) · [参与贡献](CONTRIBUTING.md)
 
 ![订单业务报告预览：先解释全貌，再按场景阅读](examples/order-journey/desktop.png)
 
@@ -26,7 +26,7 @@ node scripts/build.mjs examples/order-journey/atlas.json
 
 直接打开 `examples/order-journey/report.html`，体验“提交购买”和“取消订单”两个中文场景。先读业务过程和结论，需要核对实现时再展开源码。示例使用仓库内的合成源码，明确保留支付、物流和长期存储尚未覆盖的边界。再次构建同一输出需追加 `--replace`。
 
-编写自己的报告前，可参考[读者体验与表达约束](references/reader-experience.md)：用业务名称组织标题与阶段，函数、路径和字段保留在定位细节中。
+编写自己的报告前，可参考[读者体验与表达约束](references/analysis-guide.md#面向读者的表达)：用业务名称组织标题与阶段，函数、路径和字段保留在定位细节中。
 
 想体验完整的多链路报告：
 
@@ -146,8 +146,7 @@ node scripts/verify.mjs tests/fixtures/multi-chain/report.html --playwright /pat
 ## 项目导航
 
 - [架构与扩展边界](docs/architecture.md)
-- [仓库维护流程](docs/maintaining.md) / [行为准则](CODE_OF_CONDUCT.md)
-- [分析指南](references/analysis-guide.md) / [可复制提示词](references/可复制提示词.md)
+- [分析与写作指南](references/analysis-guide.md) / [行为准则](CODE_OF_CONDUCT.md)
 - [贡献流程](CONTRIBUTING.md) / [安全报告](SECURITY.md)
 - [MIT 许可证](LICENSE) / [第三方声明](THIRD-PARTY-NOTICES.md)
 
