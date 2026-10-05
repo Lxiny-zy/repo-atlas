@@ -8,15 +8,13 @@ import { normalizeSource, sourceReader, resolveEvidence, redactionValues, redact
 import { planOutput, atomicWrite } from './io-lib.mjs';
 import { collectSourceRows, createSnapshot, analysisManifestHash } from './snapshot-lib.mjs';
 import { assertManifest } from './manifest-lib.mjs';
+import { parseOptions } from './cli-lib.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const input = process.argv[2];
-const replace = process.argv.includes('--replace');
-const reviewMode = process.argv.includes('--review');
-if (!input || input.startsWith('--')) {
-  console.error('Usage: node build.mjs <atlas.json> [--replace] [--review]');
-  process.exit(2);
-}
+const options = parseOptions(process.argv.slice(2), { boolean: ['replace', 'review'], usage: 'Usage: node scripts/build.mjs <atlas.json> [--replace] [--review]' });
+const input = options._[0];
+const replace = Boolean(options.replace);
+const reviewMode = Boolean(options.review);
 const manifestPath = resolve(input);
 const manifest = JSON.parse((await readFile(manifestPath, 'utf8')).replace(/^\uFEFF/, ''));
 assertManifest(manifest);
@@ -148,7 +146,6 @@ const views = await Promise.all(requireList(manifest.views || [], 'views').map(a
 }));
 const viewIds = new Set(views.map(view => view.id));
 const chainStatuses = new Set(['covered', 'partial', 'unknown', 'not_applicable']);
-const chainStageKinds = new Set(['entry', 'authorization', 'validation', 'orchestration', 'read', 'write', 'side_effect', 'publication', 'consume', 'outcome', 'recovery', 'custom']);
 const chains = await Promise.all(requireList(manifest.chains || [], 'chains').map(async chain => {
   uniqueId(chain.id, 'chain');
   requireText(chain.title, 'chain.title');
@@ -304,13 +301,11 @@ const qualityWarnings = [];
 for (const view of incompleteNarratives) qualityWarnings.push(`流程“${view.title}”缺少文字说明；请补充业务阶段或视图备注。`);
 if (modules.length >= 8 && !chains.length) qualityWarnings.push('模块数量较多但没有登记业务链路；复杂项目容易退化为一张总览图。');
 for (const chain of chains) {
-  if (chain.stages.some(stage => stage.kind === 'custom')) qualityWarnings.push(`链路“${chain.title}”存在未分类阶段；建议标注 entry、validation、write、side_effect、outcome 或 recovery 以便横向比较。`);
-  if (chain.stages.some(stage => !chainStageKinds.has(stage.kind))) qualityWarnings.push(`链路“${chain.title}”使用了非标准阶段类型；建议迁移到稳定语义词表，保留自定义类型时请在清单中说明。`);
-  if (chain.stages[0]?.kind && !['entry', 'authorization', 'validation'].includes(chain.stages[0].kind)) qualityWarnings.push(`链路“${chain.title}”的首阶段不是入口或校验阶段：${chain.stages[0].kind}。`);
-  if (chain.stages.at(-1)?.kind && !['outcome', 'recovery', 'custom'].includes(chain.stages.at(-1).kind)) qualityWarnings.push(`链路“${chain.title}”的末阶段未标记为 outcome 或 recovery：${chain.stages.at(-1).kind}。`);
+  if (chain.stages[0]?.kind && !['entry', 'authorization', 'validation', 'custom'].includes(chain.stages[0].kind)) qualityWarnings.push(`“${chain.title}”从中间处理环节开始，阅读时还需要确认之前由谁发起、需要满足哪些条件。`);
+  if (chain.stages.at(-1)?.kind && !['outcome', 'recovery', 'custom'].includes(chain.stages.at(-1).kind)) qualityWarnings.push(`“${chain.title}”的步骤尚未讲到最终结果或异常恢复，后续处理还需要补充确认。`);
   const linkedViews = chain.views.map(id => views.find(view => view.id === id)).filter(Boolean);
   const linkedModules = new Set(linkedViews.flatMap(view => view.modules));
-  for (const moduleId of chain.modules) if (linkedViews.length && !linkedModules.has(moduleId)) qualityWarnings.push(`链路“${chain.title}”的模块未全部出现在关联视图中：${moduleId}`);
+  for (const moduleId of chain.modules) if (linkedViews.length && !linkedModules.has(moduleId)) qualityWarnings.push(`“${chain.title}”涉及的“${modules.find(module => module.id === moduleId)?.name || '相关环节'}”尚未出现在配套关系图中。`);
 }
 const quality = { level: qualityWarnings.length ? 'review' : 'ready', warnings: qualityWarnings };
 if (unresolvedCount) { quality.level = 'review'; quality.warnings.push(`${unresolvedCount} 处证据未解析；此报告仅用于复核。`); }

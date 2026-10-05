@@ -286,5 +286,57 @@ dialog::backdrop{background:#14211c55}
 .route-index{display:grid;place-items:center;width:27px;height:27px;border:1px solid #a5c3bb;border-radius:50%;background:#eff7f4;color:#3e756a;font-size:11px;z-index:1}
 .authored-route small{color:#87938f;font-size:10px}
 .route-arrow{position:absolute;left:8px;top:28px;color:#82a49c;font-size:12px;z-index:2;background:#f8fbfa}
-.passport-disclaimer{color:#7b8984!important;font-size:11px;line-height:1.7}
+.passport-disclaimer{color:#7b8984!important;font-size:13px;line-height:1.7}
 @media(max-width:800px){.passport-heading{display:block}.module-copy-link{margin-top:9px}.passport-columns{grid-template-columns:minmax(0,1fr);gap:13px}.passport-stats{gap:7px 13px}.authored-route li{grid-template-columns:28px minmax(0,1fr);}.authored-route small{grid-column:2}.route-arrow{top:31px}}
+
+/* Reader-facing hierarchy: purpose, business journeys, conclusions, evidence. */
+.single-flow>.section-heading,.single-flow>.section-lead,.single-flow .sequence-card-head h4{display:none}
+.sequence-step-title{position:relative;padding-right:34px}
+.sequence-step-title .stage-permalink{position:absolute;right:0;top:0;margin:0}
+.project-intro{max-width:none;padding:24px 28px;margin-bottom:28px;border:1px solid #d5e5df;border-radius:12px;background:linear-gradient(115deg,#f0f8f4,#fff 80%)}
+.intro-kicker{display:block;color:var(--accent);font-size:12px;font-weight:650;letter-spacing:.04em;margin-bottom:10px}
+#project-summary{font-size:21px;font-weight:550;line-height:1.75;max-width:46em;color:#263f38;overflow-wrap:anywhere}
+.reading-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:20px}
+.reading-actions button{display:inline-flex;align-items:center;gap:10px;padding:10px 14px;min-height:44px;border:1px solid #cdded6;border-radius:6px;background:#fff;color:#285e50;font-size:13px;font-weight:550}
+.reading-actions button:hover{background:#e5f2eb;border-color:#89b7a6}
+.reading-actions svg{width:16px;height:16px}.reading-actions button svg:last-child{margin-left:8px;width:14px}
+.reading-boundary{margin-top:17px;color:var(--muted);font-size:13px}
+.reading-boundary summary,.technical-evidence summary{cursor:pointer;min-height:32px;line-height:2.4}
+.reading-boundary p{max-width:70ch;margin-top:8px;line-height:1.85}
+.chain-section,.findings-section,.graph-section{scroll-margin-top:95px}
+.section-heading h3{font-size:19px;line-height:1.5}
+.section-lead{font-size:14px;line-height:1.85;max-width:70ch;color:var(--muted)}
+.chain-grid{margin-top:16px}.chain-card{padding:22px 24px;border-radius:10px;box-shadow:0 2px 5px #243e3204}
+.chain-card h4{font-size:18px}.chain-title-link{font-size:inherit}.chain-card>p{font-size:15px;line-height:1.8}
+.chain-endpoints{gap:18px}.chain-endpoints strong{font-size:12px;margin-bottom:5px}.chain-endpoints span{font-size:14px;line-height:1.7;overflow-wrap:anywhere}
+.chain-meta .text-link{font-size:13px;min-height:40px;display:inline-flex;align-items:center;gap:6px}
+.graph-section{margin-top:28px}.graph-intro{padding:18px 20px;border-bottom:1px solid var(--line);background:#fff}
+.graph-intro h3{font-size:17px}.graph-intro p{font-size:13px;color:var(--muted);margin-top:5px;line-height:1.8}
+.finding-highlight{padding:20px 22px;border-radius:8px}.finding-highlight h4 button{font-size:17px;line-height:1.6}
+.finding-impact{border-top:1px solid var(--line);padding-top:12px;margin-top:14px}
+.finding-impact strong,.next-question strong{display:block;font-size:12px;margin-bottom:4px;color:#576b64}
+.finding-highlight .next-question{margin-top:14px}
+.next-question{border-left:2px solid #d3a04e;padding:8px 12px;background:#fffbf3;color:#805e30!important;line-height:1.8}
+.next-question strong{color:#805e30}
+.module-row{align-items:flex-start;padding:16px 8px;font-size:14px;gap:12px}.module-row>svg{margin-top:4px}
+.module-row-copy strong{font-size:15px;font-weight:600;display:block}.module-row-copy small{display:block;font-size:13px;line-height:1.75;margin-top:5px;color:var(--muted)}
+.module-detail .summary,.dialog-body>.summary{font-size:16px;line-height:1.85;margin:12px 0 18px;max-width:70ch}
+.module-detail ul{font-size:14px;line-height:1.85}.module-detail h4{font-size:14px}
+.passport-heading p{font-size:13px;max-width:65ch}.passport-columns h4,.passport-routes h4{font-size:13px}.passport-link{font-size:14px;min-height:38px}.passport-empty{font-size:13px}
+.passport-stats{font-size:12px}.technical-evidence{border-top:1px solid var(--line);margin-top:20px;padding-top:10px;color:var(--muted);font-size:14px}
+.technical-evidence summary{font-weight:600;color:var(--accent)}.technical-evidence>p{font-size:13px;margin:8px 0}.technical-evidence .evidence-link{min-height:44px}
+.authored-route li{grid-template-columns:30px minmax(0,1fr);padding-bottom:16px}.authored-route small{grid-column:2;font-size:14px;line-height:1.8}
+.sequence-card{padding:26px 28px;border-radius:10px}.sequence-card h4{font-size:20px}.sequence-summary{font-size:16px;max-width:70ch}
+.sequence-route{border-radius:7px;padding:16px;margin:20px 0 12px}.sequence-steps{margin-top:24px}.sequence-step-title strong{font-size:17px}
+.sequence-steps p{font-size:15px;line-height:1.9;max-width:68ch}.sequence-steps>li{padding-bottom:28px}.sequence-steps small{font-size:13px;max-width:68ch;margin-top:12px}
+.sequence-step-title .status-badge{font-size:10px}.sequence-evidence{margin-top:10px}.sequence-open-chain{padding:10px 0}
+@media(max-width:800px){
+  .project-intro{padding:20px 18px;margin-bottom:22px}#project-summary{font-size:18px;line-height:1.85}
+  .reading-actions{gap:8px}.reading-actions button{flex:1 1 180px;justify-content:flex-start}.reading-actions button svg:last-child{margin-left:auto}
+  .reading-boundary{font-size:13px}.section-heading h3{font-size:17px}.chain-card{padding:20px 18px}.chain-card h4{font-size:17px}
+  .chain-card>p,.chain-endpoints span{font-size:14px}.graph-intro{padding:16px}.graph-intro h3{font-size:16px}
+  .sequence-card{padding:20px 16px}.sequence-card h4{font-size:18px}.sequence-summary{font-size:15px}.sequence-step-title strong{font-size:16px}
+  .sequence-steps{margin-top:20px}.sequence-steps>li{gap:11px}.sequence-steps p{font-size:14px;line-height:1.9}
+  .module-row-copy small{font-size:13px}.chain-heading-tools{max-width:150px}.finding-highlight{padding:18px}.finding-highlight h4 button{font-size:16px}
+}
+@media print{.reading-actions,.reading-boundary{display:none}.project-intro{background:#fff}.chain-card,.sequence-card{break-inside:avoid}.graph-intro{background:#fff}}

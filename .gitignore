@@ -5,6 +5,7 @@ node_modules/
 # Local repo-atlas runtime state and generated review artifacts
 .repo-atlas/
 .verification/
+*.verification/
 .playwright-cli/
 atlas.next.json
 *.snapshot.json
@@ -22,3 +23,5 @@ Thumbs.db
 tmp-*/
 tmp_*/
 coverage/
+/tests/fixtures/multi-chain/*.html
+/examples/order-journey/report.html

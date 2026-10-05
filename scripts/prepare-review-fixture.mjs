@@ -1,8 +1,9 @@
 // Synthetic browser fixture only: these decisions are never applied to a user's project.
-import { cp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { copyFixture } from './fixture-lib.mjs';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const output = resolve(root, process.argv[2] || 'tmp-review-workflow');
 if (!output.startsWith(resolve(root, 'tmp-'))) throw new Error('Fixture output must use a tmp- directory inside this repository');
@@ -10,7 +11,7 @@ await mkdir(output); // Refuse to overwrite an earlier fixture or its reviews.
 const run = (dir, script, ...args) => execFileSync(process.execPath, [resolve(root, 'scripts', script), ...args], { cwd: dir, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
 for (const name of ['accepted', 'unresolved']) {
   const dir = resolve(output, name);
-  await cp(resolve(root, 'tests/fixtures/multi-chain'), dir, { recursive: true });
+  await copyFixture(dir);
   run(dir, 'snapshot.mjs', 'atlas.json');
   const path = resolve(dir, 'src/order.js');
   if (name === 'unresolved') await rm(path);

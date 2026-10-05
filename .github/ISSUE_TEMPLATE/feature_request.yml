@@ -1,0 +1,17 @@
+name: Feature request / 功能建议
+description: Explain the reader or author workflow you want to improve.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: User problem / 用户问题
+      description: Who needs this and what cannot they accomplish with the current workflow?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired behavior and alternatives / 预期行为与替代方式
+      description: Include a concrete example and how you would verify the result.
+    validations:
+      required: true

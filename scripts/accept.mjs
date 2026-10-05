@@ -10,11 +10,7 @@ import { redactValue, redactionValues } from './evidence-lib.mjs';
 import { collectSourceRows } from './snapshot-lib.mjs';
 import { relocateSchema } from './manifest-lib.mjs';
 
-const options = parseOptions(process.argv.slice(2));
-if (!options._[0] || !options.review || options.help) {
-  console.error('Usage: node accept.mjs <atlas.next.json> --review .repo-atlas/review.json [--output-dir .repo-atlas/accepted/version]');
-  process.exit(options.help ? 0 : 2);
-}
+const options = parseOptions(process.argv.slice(2), {"value":["review","output-dir"],"required":["review"],"usage":"Usage: node scripts/accept.mjs <atlas.next.json> --review review.json [--output-dir accepted/version]"});
 const bundle = await loadManifest(options._[0]);
 const reviewPath = assertOutputInside(bundle.workspace, options.review);
 const review = JSON.parse(await readFile(reviewPath, 'utf8'));

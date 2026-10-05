@@ -3,11 +3,7 @@ import { loadManifest, parseOptions, protectedSourcePaths, writeJson, slash } fr
 import { planOutput, atomicWrite } from './io-lib.mjs';
 import { reviewState, reviewTasks, reviewBinding } from './review-lib.mjs';
 
-const options = parseOptions(process.argv.slice(2));
-if (!options._[0] || options.help) {
-  console.error('Usage: node review.mjs <atlas.next.json> [--output .repo-atlas/review.json]');
-  process.exit(options.help ? 0 : 2);
-}
+const options = parseOptions(process.argv.slice(2), {"value":["output"],"usage":"Usage: node scripts/review.mjs <atlas.next.json> [--output review.json]"});
 const bundle = await loadManifest(options._[0]);
 const state = await reviewState(bundle);
 const protectedPaths = [...protectedSourcePaths(bundle, { ...state.baseline.files, ...state.current.files }), state.baselinePath, state.deltaPath];

@@ -2,12 +2,8 @@ import { readFile } from 'node:fs/promises';
 import { loadManifest, parseOptions, createSnapshot, assertOutputInside, writeJson, assertBaselineWorkspace, snapshotHash, protectedSourcePaths } from './snapshot-lib.mjs';
 import { planOutput, atomicWrite } from './io-lib.mjs';
 
-const options = parseOptions(process.argv.slice(2));
+const options = parseOptions(process.argv.slice(2), {"value":["from","output","snapshot-output"],"usage":"Usage: node scripts/delta.mjs <atlas.json> [--from snapshot.json] [--output delta.json] [--snapshot-output current-snapshot.json]"});
 const manifestArg = options._[0];
-if (!manifestArg || options.help) {
-  console.error('Usage: node delta.mjs <atlas.json> [--from .repo-atlas/snapshot.json] [--output .repo-atlas/delta.json] [--snapshot-output .repo-atlas/current-snapshot.json]');
-  process.exit(options.help ? 0 : 2);
-}
 
 const bundle = await loadManifest(manifestArg);
 const fromPath = assertOutputInside(bundle.workspace, options.from || '.repo-atlas/snapshot.json');

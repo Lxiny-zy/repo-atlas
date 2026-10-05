@@ -9,6 +9,7 @@ import { createSnapshot, loadManifest, analysisManifestHash } from '../scripts/s
 import { resolveEvidence } from '../scripts/evidence-lib.mjs';
 import { atomicWrite } from '../scripts/io-lib.mjs';
 import { baselineTexts } from '../scripts/git-lib.mjs';
+import { copyFixture } from '../scripts/fixture-lib.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const read = async (dir, path) => JSON.parse(await readFile(resolve(dir, path), 'utf8'));
@@ -33,7 +34,7 @@ async function fixture(t, withGit = false) {
   const dir = await mkdtemp(resolve(tmpdir(), 'repo-atlas-regression-'));
   // Only delete the exact temporary workspace created by this test.
   t.after(async () => { assert.ok(dir.startsWith(resolve(tmpdir(), 'repo-atlas-regression-'))); await rm(dir, { recursive: true, force: true }); });
-  await cp(resolve(root, 'tests/fixtures/multi-chain'), dir, { recursive: true });
+  await copyFixture(dir);
   if (withGit) init(dir);
   return dir;
 }
@@ -84,6 +85,27 @@ test('unowned file changes require review; module paths map uncited files', asyn
   assert.deepEqual(diff.changes[0].impact, ['module:api']);
   assert.equal(diff.unmappedChanges.length, 0);
   assert.equal((await read(dir, 'atlas.next.json')).modules[0].reviewRequired, true);
+});
+
+test('overlapping inventory caches preserve exclusions, group priority and freshness across snapshots', async t => {
+  const dir = await fixture(t);
+  await mkdir(resolve(dir, 'src/optional'));
+  await writeFile(resolve(dir, 'src/optional/helper.ts'), 'export const value = 1;');
+  const manifest = await read(dir, 'atlas.json');
+  manifest.fileGroups = [
+    { name: 'Primary', paths: ['src'], extensions: ['.js', '.ts'], exclude: ['optional'] },
+    { name: 'Secondary', paths: ['src'], extensions: ['.ts', '.js'] }
+  ];
+  await put(dir, 'atlas.json', manifest);
+  const bundle = await loadManifest(resolve(dir, 'atlas.json'));
+  const first = await createSnapshot(bundle);
+  assert.equal(first.files['src/order.js'].group, 'Primary');
+  assert.equal(first.files['src/optional/helper.ts'].group, 'Secondary');
+  await writeFile(resolve(dir, 'src/optional/helper.ts'), 'export const changed = 123;');
+  await writeFile(resolve(dir, 'src/optional/new.ts'), 'export const added = true;');
+  const second = await createSnapshot(bundle, first);
+  assert.notEqual(second.files['src/optional/helper.ts'].sha256, first.files['src/optional/helper.ts'].sha256);
+  assert.ok(second.files['src/optional/new.ts']);
 });
 
 test('redaction covers every context field and Git diffs, including old secrets', async t => {

@@ -1,19 +1,19 @@
 import assert from 'node:assert/strict';
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { copyFixture } from './fixture-lib.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '..');
-const fixture = resolve(repoRoot, 'tests/fixtures/multi-chain');
 const run = (cwd, script, ...args) => execFileSync(process.execPath, [resolve(repoRoot, 'scripts', script), ...args], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 const git = (cwd, ...args) => execFileSync('git', ['-c', 'user.name=repo-atlas-test', '-c', 'user.email=test@example.invalid', ...args], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 
 const workspace = await mkdtemp(resolve(tmpdir(), 'repo-atlas-test-'));
 try {
-  await cp(fixture, workspace, { recursive: true });
+  await copyFixture(workspace);
   git(workspace, 'init', '--quiet');
   git(workspace, 'add', '.');
   git(workspace, 'commit', '--quiet', '-m', 'fixture');

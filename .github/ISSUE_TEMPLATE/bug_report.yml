@@ -1,0 +1,27 @@
+name: Bug report / 缺陷报告
+description: Report incorrect behavior with a small synthetic reproduction.
+body:
+  - type: markdown
+    attributes:
+      value: "Use synthetic data. Do not attach private source, secrets or production reports. See SECURITY.md for sensitive reports."
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment / 环境
+      description: OS, Node version, repo-atlas commit/version, and browser/Playwright version if relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction / 复现步骤
+      description: Include the exact command, working directory and minimal synthetic manifest/source.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior / 预期与实际
+      description: Include exit codes and relevant error output.
+    validations:
+      required: true

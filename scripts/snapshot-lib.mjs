@@ -6,6 +6,7 @@ import { gitInfo } from './git-lib.mjs';
 import { assertManifest } from './manifest-lib.mjs';
 export { hashBytes, hashText, inside, gitInfo };
 export { assertOutputInside } from './io-lib.mjs';
+export { parseOptions } from './cli-lib.mjs';
 
 export const slash = value => value.split(sep).join('/');
 const runtimeFields = new Set(['freshness', 'reviewRequired', 'staleReason']);
@@ -40,19 +41,6 @@ export async function loadManifest(manifestPath) {
   if (!manifest.workspace || typeof manifest.workspace !== 'string') throw new Error('manifest.workspace is required');
   const workspace = await realpath(resolve(dirname(absolute), manifest.workspace));
   return { manifestPath: absolute, raw, manifest, workspace };
-}
-
-export function parseOptions(argv) {
-  const options = { _: [] };
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index];
-    if (!arg.startsWith('--')) { options._.push(arg); continue; }
-    const [key, inline] = arg.slice(2).split('=', 2);
-    if (inline !== undefined) options[key] = inline;
-    else if (argv[index + 1] && !argv[index + 1].startsWith('--')) options[key] = argv[++index];
-    else options[key] = true;
-  }
-  return options;
 }
 
 export function repoRelative(workspace, value) {
@@ -120,13 +108,13 @@ export function buildSummaryIndex(manifest) {
   return summaries;
 }
 
-async function walkFiles(workspace, group, files, seen, allowMissingSources = false) {
+async function walkFiles(workspace, group, files, seen, reads, allowMissingSources = false) {
   const extensions = new Set((group.extensions || []).map(value => value.toLowerCase()));
   const excludes = new Set(['.git', '.repo-atlas', 'node_modules', '.venv', '__pycache__', ...(group.exclude || [])]);
   async function visit(relativePath) {
     let full;
     try {
-      full = await checkedPath(workspace, relativePath);
+      full = await reads.path(relativePath);
     } catch (error) {
       if (allowMissingSources && isMissing(error)) return;
       throw error;
@@ -134,9 +122,9 @@ async function walkFiles(workspace, group, files, seen, allowMissingSources = fa
     const canonical = full;
     if (seen.has(canonical)) return;
     seen.add(canonical);
-    const info = await stat(canonical);
+    const info = await reads.stat(canonical);
     if (info.isDirectory()) {
-      for (const entry of await readdir(canonical, { withFileTypes: true })) {
+      for (const entry of await reads.directory(canonical)) {
         if (excludes.has(entry.name) || entry.isSymbolicLink()) continue;
         await visit(slash(relative(workspace, resolve(canonical, entry.name))));
       }
@@ -160,26 +148,37 @@ async function fileHash(workspace, record, previous, force = false) {
 
 export async function collectFileInventory({ manifest, workspace, previous, allowMissingSources = false }) {
   const files = new Map();
+  // Share physical reads within this inventory only. Filters and visited sets
+  // remain per group, and later snapshots always observe a fresh filesystem.
+  const memoize = read => {
+    const cache = new Map();
+    return key => { if (!cache.has(key)) cache.set(key, read(key)); return cache.get(key); };
+  };
+  const reads = {
+    path: memoize(path => checkedPath(workspace, path)),
+    stat: memoize(path => stat(path)),
+    directory: memoize(path => readdir(path, { withFileTypes: true }))
+  };
   const sources = sourceRows(manifest);
   const evidencePaths = new Set();
   for (const source of sources) {
     evidencePaths.add(repoRelative(workspace, source.path));
     try {
-      evidencePaths.add(slash(relative(workspace, await checkedPath(workspace, source.path))));
+      evidencePaths.add(slash(relative(workspace, await reads.path(source.path))));
     } catch (error) {
       if (!(allowMissingSources && isMissing(error))) throw error;
     }
   }
-  for (const group of manifest.fileGroups || []) await walkFiles(workspace, group, files, new Set(), allowMissingSources);
+  for (const group of manifest.fileGroups || []) await walkFiles(workspace, group, files, new Set(), reads, allowMissingSources);
   for (const source of sources) {
     let full;
     try {
-      full = await checkedPath(workspace, source.path);
+      full = await reads.path(source.path);
     } catch (error) {
       if (allowMissingSources && isMissing(error)) continue;
       throw error;
     }
-    const info = await stat(full);
+    const info = await reads.stat(full);
     const path = slash(relative(workspace, full));
     if (!files.has(path)) files.set(path, { path, group: 'evidence-only', size: info.size, mtimeMs: info.mtimeMs, ctimeMs: info.ctimeMs });
   }

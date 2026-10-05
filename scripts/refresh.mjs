@@ -4,12 +4,8 @@ import { loadManifest, parseOptions, assertOutputInside, writeJson, validateDelt
 import { planOutput, atomicWrite } from './io-lib.mjs';
 import { relocateSchema } from './manifest-lib.mjs';
 
-const options = parseOptions(process.argv.slice(2));
+const options = parseOptions(process.argv.slice(2), {"value":["delta","from","output"],"usage":"Usage: node scripts/refresh.mjs <atlas.json> [--delta delta.json] [--from snapshot.json] [--output atlas.next.json]"});
 const manifestArg = options._[0];
-if (!manifestArg || options.help) {
-  console.error('Usage: node refresh.mjs <atlas.json> --delta .repo-atlas/delta.json [--output atlas.next.json]');
-  process.exit(options.help ? 0 : 2);
-}
 const bundle = await loadManifest(manifestArg);
 const deltaPath = assertOutputInside(bundle.workspace, options.delta || '.repo-atlas/delta.json');
 const delta = JSON.parse(await readFile(deltaPath, 'utf8'));

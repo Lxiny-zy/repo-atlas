@@ -1,23 +1,14 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, realpath } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { hashText, writeJson } from './snapshot-lib.mjs';
 import { assertManifest } from './manifest-lib.mjs';
+import { parseOptions } from './cli-lib.mjs';
+import { planOutput, atomicWrite } from './io-lib.mjs';
 
-const options = (() => {
-  const args = process.argv.slice(2); const result = { _: [] };
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
-    if (!arg.startsWith('--')) result._.push(arg);
-    else if (arg.includes('=')) { const [key, value] = arg.slice(2).split('=', 2); result[key] = value; }
-    else if (args[index + 1] && !args[index + 1].startsWith('--')) result[arg.slice(2)] = args[++index];
-    else result[arg.slice(2)] = true;
-  }
-  return result;
-})();
-if (options.help || options._.length !== 2) {
-  console.error('Usage: node scripts/compare.mjs <base-atlas.json> <head-atlas.json> [--output diff.json] [--json]');
-  process.exit(options.help ? 0 : 2);
-}
+const options = parseOptions(process.argv.slice(2), {
+  boolean: ['json', 'replace'], value: ['output'], min: 2,
+  usage: 'Usage: node scripts/compare.mjs <base-atlas.json> <head-atlas.json> [--output diff.json] [--json] [--replace]'
+});
 
 const collections = [
   ['modules', 'id'], ['views', 'id'], ['chains', 'id'], ['findings', 'id'],
@@ -27,11 +18,18 @@ const runtimeFields = new Set(['freshness', 'reviewRequired', 'staleReason']);
 const clone = value => {
   if (Array.isArray(value)) return value.map(clone);
   if (!value || typeof value !== 'object') return value;
-  const result = {};
+  const result = Object.create(null);
   for (const key of Object.keys(value).sort()) {
-    if (runtimeFields.has(key) || ['update', 'review', '$schema', 'workspace', 'output'].includes(key)) continue;
     result[key] = clone(value[key]);
   }
+  return result;
+};
+// Metadata is excluded only at schema-defined entity boundaries. Arbitrary
+// JSON inside flag values must retain every key, including metadata-like names.
+const semanticRow = (row, collection) => {
+  const result = clone(row);
+  for (const field of runtimeFields) delete result[field];
+  if (collection === 'chains') result.stages = (result.stages || []).map(stage => semanticRow(stage, 'stages'));
   return result;
 };
 const indexCollection = (manifest, collection, key) => new Map((manifest[collection] || []).map((row, index) => [String(row?.[key] ?? index), { row, index }]));
@@ -46,6 +44,9 @@ const changedFields = (before, after) => {
 };
 
 const basePath = resolve(options._[0]); const headPath = resolve(options._[1]);
+const outputRoot = await realpath(process.cwd());
+const outputOptions = { protectedPaths: [basePath, headPath], replace: Boolean(options.replace) };
+const outputPath = options.output ? planOutput(outputRoot, options.output, outputOptions) : null;
 const base = JSON.parse((await readFile(basePath, 'utf8')).replace(/^\uFEFF/, ''));
 const head = JSON.parse((await readFile(headPath, 'utf8')).replace(/^\uFEFF/, ''));
 assertManifest(base); assertManifest(head);
@@ -61,11 +62,11 @@ const result = {
 const compareCollection = (collection, key, beforeRows, afterRows) => {
   const before = indexCollection({ [collection]: beforeRows }, collection, key); const after = indexCollection({ [collection]: afterRows }, collection, key);
   const added = []; const removed = []; const changed = [];
-  for (const [id, entry] of after) if (!before.has(id)) added.push({ key: id, value: clone(entry.row) });
-  for (const [id, entry] of before) if (!after.has(id)) removed.push({ key: id, value: clone(entry.row) });
+  for (const [id, entry] of after) if (!before.has(id)) added.push({ key: id, value: semanticRow(entry.row, collection) });
+  for (const [id, entry] of before) if (!after.has(id)) removed.push({ key: id, value: semanticRow(entry.row, collection) });
   for (const [id, entry] of after) {
     if (!before.has(id)) continue;
-    const left = clone(before.get(id).row); const right = clone(entry.row);
+    const left = semanticRow(before.get(id).row, collection); const right = semanticRow(entry.row, collection);
     const fields = changedFields(left, right);
     if (fields.length) changed.push({ key: id, fields, before: left, after: right });
   }
@@ -85,5 +86,5 @@ result.summary = {
   rootChanged: result.root.changed.length > 0
 };
 const output = writeJson(result);
-if (options.output) await writeFile(resolve(options.output), output, 'utf8');
+if (outputPath) await atomicWrite(outputRoot, outputPath, output, outputOptions);
 if (options.json || !options.output) console.log(output);

@@ -16,6 +16,8 @@
     "node": ">=18"
   },
   "scripts": {
+    "check": "node scripts/check.mjs",
+    "verify:schema": "node scripts/verify-schema.mjs --ajv node_modules/ajv/dist/2020.js",
     "validate": "node scripts/validate.mjs",
     "build": "node scripts/build.mjs",
     "snapshot": "node scripts/snapshot.mjs",
@@ -28,6 +30,10 @@
     "check-delivery": "node scripts/check-delivery.mjs",
     "verify": "node scripts/verify.mjs",
     "benchmark": "node scripts/benchmark.mjs",
-    "test": "node --test tests/manifest.test.mjs tests/incremental.test.mjs tests/review.test.mjs tests/compare.test.mjs && node scripts/test.mjs"
+    "test": "node scripts/run-tests.mjs"
+  },
+  "devDependencies": {
+    "ajv": "8.20.0",
+    "playwright": "1.58.2"
   }
 }

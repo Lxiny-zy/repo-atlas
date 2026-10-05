@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Reader experience
+
+- Prioritized purpose, business journeys and useful conclusions before relationship diagrams; added direct reading choices and expandable scope notes.
+- Replaced implementation jargon in relationship navigation with plain Chinese, expanded module cards with responsibility summaries, and made module source locations opt-in.
+- Improved desktop/mobile reading sizes, flow steps and unresolved-question callouts; conclusions now show business impact where authored.
+- Added a complete Chinese order-journey demonstration with source-backed boundaries and an authoring guide that separates business explanation from technical identifiers.
+- Added three-browser reader-journey checks for reading order, 320px/390px layouts, unresolved outcomes and evidence disclosure.
+
+### Reliability and contributor workflow
+
+- Fixed semantic comparison dropping metadata-like keys inside arbitrary business JSON, including nested arrays and prototype-like property names.
+- Protected compare inputs and link aliases; comparison output now stays within the current working directory, uses atomic writes, and requires `--replace` for an existing result. Scripts relying on unrestricted or implicit replacement must be updated.
+- Unified user-command option parsing: boolean flags no longer consume paths; unknown/duplicate options, missing values and extra positionals fail before work; added consistent help and `--` handling.
+- Strengthened delivery checks with byte hashing, source-binding validation and canonical link containment.
+- Cached inventory filesystem reads within each operation while preserving independent group filters, evidence rehashing and cross-snapshot freshness.
+- Expanded synthetic benchmarks with repeated samples, extra evidence, overlapping groups, optional local Git history, median/p95 summaries and explicit measurement limitations.
+- Added automatic test discovery, syntax/local-documentation checks, focused correctness regressions, pinned development dependencies and lockfile-based CI installs.
+- Isolated synthetic fixture inputs from previously generated reports and browser artifacts, fixing build-then-review CI and repeated local verification.
+- Made focus-link browser checks wait for the visible navigation result rather than a previously selected module ID, removing a WebKit timing race without weakening assertions.
+- Updated the development-only Ajv validator to 8.20.0, outside the affected range of GHSA-2g4f-4pwh-qvx6.
+- Reorganized Chinese/English READMEs, added command and architecture references, contributor setup, issue/PR templates, editor conventions and dependency-update configuration.
+
 - Added an offline JSON Schema, VS Code associations, and shared structural/reference validation before build and incremental operations.
 - Added read-only batch manifest/evidence diagnostics with JSON Pointer locations, review warnings, safe error output, and explicit check scope.
 - Preserved relative editor schema links through refresh/accept without changing semantic hashes; corrected chain-stage ID validation to scope IDs by chain.

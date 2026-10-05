@@ -2,12 +2,8 @@ import { readFile } from 'node:fs/promises';
 import { loadManifest, parseOptions, createSnapshot, assertOutputInside, writeJson, protectedSourcePaths, assertBaselineWorkspace } from './snapshot-lib.mjs';
 import { planOutput, atomicWrite } from './io-lib.mjs';
 
-const options = parseOptions(process.argv.slice(2));
+const options = parseOptions(process.argv.slice(2), {"value":["output","from"],"usage":"Usage: node scripts/snapshot.mjs <atlas.json> [--output snapshot.json] [--from snapshot.json]"});
 const manifestArg = options._[0];
-if (!manifestArg || options.help) {
-  console.error('Usage: node snapshot.mjs <atlas.json> [--output .repo-atlas/snapshot.json] [--from snapshot.json]');
-  process.exit(options.help ? 0 : 2);
-}
 const bundle = await loadManifest(manifestArg);
 const fromPath = options.from ? assertOutputInside(bundle.workspace, options.from) : null;
 let previous = null;

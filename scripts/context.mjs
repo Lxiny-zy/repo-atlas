@@ -6,11 +6,7 @@ import { sourceReader, hashText, redactionValues, redactionHash, redactText, red
 import { baselineTexts, textDiff } from './git-lib.mjs';
 import { budgetContext } from './context-lib.mjs';
 
-const options = parseOptions(process.argv.slice(2));
-if (!options._[0] || options.help) {
-  console.error('Usage: node context.mjs <atlas.json> [--from snapshot.json] [--delta delta.json] [--out context.json] [--changed-only] [--stale-only] [--previous-manifest atlas.previous.json] [--max-bytes 262144]');
-  process.exit(options.help ? 0 : 2);
-}
+const options = parseOptions(process.argv.slice(2), {"boolean":["changed-only","stale-only"],"value":["from","delta","out","output","previous-manifest","max-bytes"],"usage":"Usage: node scripts/context.mjs <atlas.json> [--from snapshot.json] [--delta delta.json] [--output context.json] [--changed-only] [--stale-only] [--previous-manifest atlas.previous.json] [--max-bytes 262144]"});
 const bundle = await loadManifest(options._[0]);
 const baselinePath = assertOutputInside(bundle.workspace, options.from || '.repo-atlas/snapshot.json');
 const deltaPath = assertOutputInside(bundle.workspace, options.delta || '.repo-atlas/delta.json');

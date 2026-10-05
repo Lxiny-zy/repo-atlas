@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { validateManifest, validateManifestFile, relocateSchema } from '../scripts/manifest-lib.mjs';
 import { analysisManifestHash } from '../scripts/snapshot-lib.mjs';
+import { copyFixture } from '../scripts/fixture-lib.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const original = JSON.parse(await readFile(resolve(root, 'tests/fixtures/multi-chain/atlas.json'), 'utf8'));
@@ -21,7 +22,7 @@ async function fixture(t) {
     assert.ok(dir.startsWith(resolve(tmpdir(), 'atlas-manifest-test-')));
     await rm(dir, { recursive: true, force: true });
   });
-  await cp(resolve(root, 'tests/fixtures/multi-chain'), dir, { recursive: true });
+  await copyFixture(dir);
   return dir;
 }
 

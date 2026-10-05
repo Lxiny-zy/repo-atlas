@@ -3,19 +3,14 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, resolve, basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { parseOptions } from './cli-lib.mjs';
 
-const reportArg = process.argv[2];
-if (!reportArg || reportArg.startsWith('--')) {
-  console.error('Usage: node verify.mjs <report.html> [--playwright <installed-playwright/index.mjs>] [--browser chromium|firefox|webkit] [--channel chrome|msedge]');
-  process.exit(2);
-}
+const options = parseOptions(process.argv.slice(2), { value: ['playwright', 'browser', 'channel'], usage: 'Usage: node scripts/verify.mjs <report.html> [--playwright installed-playwright/index.mjs] [--browser chromium|firefox|webkit] [--channel chrome|msedge]' });
+const reportArg = options._[0];
 const html = resolve(reportArg);
-const argIndex = process.argv.indexOf('--playwright');
-let packagePath = argIndex >= 0 ? process.argv[argIndex + 1] : process.env.REPO_ATLAS_PLAYWRIGHT_PATH;
-const channelIndex = process.argv.indexOf('--channel');
-const requestedChannel = channelIndex >= 0 ? process.argv[channelIndex + 1] : process.env.REPO_ATLAS_BROWSER_CHANNEL;
-const browserIndex = process.argv.indexOf('--browser');
-const requestedBrowser = browserIndex >= 0 ? process.argv[browserIndex + 1] : 'chromium';
+let packagePath = options.playwright || process.env.REPO_ATLAS_PLAYWRIGHT_PATH;
+const requestedChannel = options.channel || process.env.REPO_ATLAS_BROWSER_CHANNEL;
+const requestedBrowser = options.browser || 'chromium';
 if (!['chromium', 'firefox', 'webkit'].includes(requestedBrowser)) throw new Error('--browser must be chromium, firefox or webkit');
 if (requestedChannel && requestedBrowser !== 'chromium') throw new Error('--channel applies only to chromium');
 if (requestedChannel && !['chrome', 'msedge'].includes(requestedChannel)) throw new Error('--channel must be chrome or msedge');
@@ -45,7 +40,7 @@ async function launchBrowser() {
 }
 const launched = await launchBrowser();
 const browser = launched.browser;
-const artifactDirectory = resolve(dirname(html), basename(html, '.html') + '.verification', ...(browserIndex >= 0 ? [requestedBrowser] : []));
+const artifactDirectory = resolve(dirname(html), basename(html, '.html') + '.verification', ...(options.browser ? [requestedBrowser] : []));
 await mkdir(artifactDirectory, { recursive: true });
 const result = { report: html, browser: launched.channel, status: 'running', diagrams: [], checks: [], mobile: [], layout: [], errors: [] };
 const errors = [];
@@ -242,6 +237,9 @@ try {
   await page.locator('#module-search').fill(module.name);
   await page.locator(`[data-search-module="${module.id}"]`).click();
   assert.ok(await page.locator('#detail-dialog').isVisible());
+  const technical = page.locator('#dialog-body [data-technical-evidence]');
+  assert.equal(await technical.getAttribute('open'), null, 'source locations should be opt-in');
+  await technical.locator('summary').click();
   await page.locator(`[data-evidence-module="${module.id}"]`).first().click();
   assert.equal(await page.locator('#dialog-body pre').textContent(), module.sources[0].excerpt);
   const sourceHref = await page.locator('#dialog-body a').getAttribute('href');
@@ -256,6 +254,9 @@ try {
   const authoredTarget = authoredSource ? data.modules.find(item => item.id === authoredSource.links.find(id => data.modules.some(moduleRow => moduleRow.id === id))) : null;
   if (authoredSource && authoredTarget) {
     await page.evaluate(({ view, focus, reach }) => { location.hash = '#' + new URLSearchParams({ view, focus, reach }).toString(); }, { view: overviewId, focus: authoredSource.id, reach: 'downstream' });
+    // Search already selected this module. Its ID alone can satisfy the wait
+    // before the asynchronous hash navigation has restored the inline detail.
+    await page.locator('#module-detail').waitFor({ state: 'visible' });
     await page.waitForFunction(id => window.repoAtlas.selectedModule === id, authoredSource.id);
     assert.ok(await page.locator('#module-detail').isVisible(), 'module focus detail is hidden');
     assert.ok(await page.locator('.module-passport').isVisible(), 'relationship passport is hidden');
@@ -272,7 +273,8 @@ try {
 
     await page.evaluate(({ view, route }) => { location.hash = '#' + new URLSearchParams({ view, route }).toString(); }, { view: overviewId, route: authoredSource.id + '~' + authoredTarget.id });
     await page.waitForFunction(() => document.getElementById('detail-dialog').open && document.querySelectorAll('.authored-route li').length >= 2);
-    assert.ok((await page.locator('#dialog-body').innerText()).includes('authored relationship'));
+    assert.ok((await page.locator('#dialog-body').innerText()).includes('协作路径'));
+    assert.ok(!(await page.locator('#dialog-body').innerText()).includes('modules.links'));
     assert.equal(new URLSearchParams(new URL(await page.evaluate(() => location.href)).hash.slice(1)).get('route'), authoredSource.id + '~' + authoredTarget.id);
     await page.locator('#close-dialog').click();
     result.checks.push('authored relationship passport / stable focus hash / finite route reading');

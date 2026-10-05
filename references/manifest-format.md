@@ -2,6 +2,8 @@
 
 生成器执行指定证据的提取与索引统计，不从目录自动推断业务架构。输入使用 UTF-8 JSON，不使用可执行 JavaScript 配置。
 
+`name`、`title`、`label`、`summary`、`trigger`、`outcome` 是直接给读者看的内容，应使用业务语言；稳定 `id`、证据路径和函数锚点承担技术定位。具体写法见 [读者体验与表达约束](reader-experience.md)，完整中文示例见 [订单业务清单](../examples/order-journey/atlas.json)。
+
 ## 编辑器与批量校验
 
 [schemas/atlas.schema.json](../schemas/atlas.schema.json) 使用 JSON Schema draft 2020-12，覆盖项目、模块、视图、链路/阶段、证据、发现项、覆盖项及各类索引。仓库的 `.vscode/settings.json` 已关联 `atlas.json` 和 `atlas.next.json`。也可在清单顶层添加 `$schema`，值为相对清单的 Schema 文件路径，或编辑器可读取的绝对文件地址；CLI 始终使用随工具提供的 Schema，不下载或执行用户指定的地址。
@@ -24,7 +26,7 @@ node scripts/validate.mjs atlas.next.json --review
 运行时校验器只实现随附 Schema 使用的关键字，不是通用 JSON Schema 引擎；新增未知关键字会在启动时报错。开发时可安装临时 Ajv 并独立对照验证，运行和构建无 npm 依赖：
 
 ```text
-npm install --prefix tmp-schema-validation --no-save --package-lock=false ajv@8.17.1
+npm install --prefix tmp-schema-validation --no-save --package-lock=false ajv@8.20.0
 node scripts/verify-schema.mjs --ajv tmp-schema-validation/node_modules/ajv/dist/2020.js
 ```
 

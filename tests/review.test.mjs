@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cp, mkdtemp, readFile, writeFile, rm, readdir } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, writeFile, rm, readdir, symlink } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { copyFixture } from '../scripts/fixture-lib.mjs';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const json = async (dir, path) => JSON.parse(await readFile(resolve(dir, path), 'utf8'));
 const put = (dir, path, value) => writeFile(resolve(dir, path), JSON.stringify(value, null, 2));
@@ -17,7 +18,7 @@ function run(dir, script, args = [], error = null) {
 async function fixture(t) {
   const dir = await mkdtemp(resolve(tmpdir(), 'atlas-review-test-'));
   t.after(async () => { assert.ok(dir.startsWith(resolve(tmpdir(), 'atlas-review-test-'))); await rm(dir, { recursive: true, force: true }); });
-  await cp(resolve(root, 'tests/fixtures/multi-chain'), dir, { recursive: true });
+  await copyFixture(dir);
   run(dir, 'snapshot.mjs', ['atlas.json']);
   const path = resolve(dir, 'src/order.js'); await writeFile(path, (await readFile(path, 'utf8')).replace('valid: true', 'valid: false'));
   run(dir, 'delta.mjs', ['atlas.json']); run(dir, 'refresh.mjs', ['atlas.json']);
@@ -55,6 +56,16 @@ test('reviewed release contains report, receipt and usable baseline without repl
   assert.equal(delivery.artifact.bytes, Buffer.byteLength(await readFile(resolve(dir, '.repo-atlas/accepted/test/report.html'))));
   assert.equal(delivery.inputs.manifest.sha256, receipt.manifestSha256);
   run(dir, 'check-delivery.mjs', ['.repo-atlas/accepted/test']);
+  const deliveryPath = '.repo-atlas/accepted/test/delivery.json';
+  await put(dir, deliveryPath, { ...delivery, source: {} });
+  run(dir, 'check-delivery.mjs', ['.repo-atlas/accepted/test'], /source binding is invalid/);
+  await put(dir, deliveryPath, delivery);
+  const versionDir = resolve(dir, '.repo-atlas/accepted/test');
+  await symlink(dir, resolve(versionDir, 'outside'), process.platform === 'win32' ? 'junction' : 'dir');
+  await cp(resolve(versionDir, 'report.html'), resolve(dir, 'copied-report.html'));
+  await put(dir, deliveryPath, { ...delivery, artifact: { ...delivery.artifact, path: 'outside/copied-report.html' } });
+  run(dir, 'check-delivery.mjs', ['.repo-atlas/accepted/test'], /link escapes/);
+  await put(dir, deliveryPath, delivery);
   const reportPath = resolve(dir, '.repo-atlas/accepted/test/report.html');
   await writeFile(reportPath, `${await readFile(reportPath, 'utf8')}\n`);
   run(dir, 'check-delivery.mjs', ['.repo-atlas/accepted/test'], /artifact hash mismatch/);
