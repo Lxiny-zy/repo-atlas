@@ -275,10 +275,26 @@ try {
     const copiedFocus = await page.evaluate(() => window.__copiedFocusLink);
     assert.equal(new URLSearchParams(new URL(copiedFocus).hash.slice(1)).get('focus'), authoredSource.id);
     assert.equal(new URLSearchParams(new URL(copiedFocus).hash.slice(1)).get('reach'), 'downstream');
-    assert.ok(await page.locator(`#reader-body [data-focus-architecture="${authoredTarget.id}"]`).count(), 'downstream authored link is missing');
-    await page.locator(`#reader-body [data-focus-architecture="${authoredTarget.id}"]`).first().click();
-    assert.equal(await page.evaluate(() => window.repoAtlas.selectedModule), authoredTarget.id);
-    assert.equal(new URLSearchParams(new URL(await page.evaluate(() => location.href)).hash.slice(1)).get('focus'), authoredTarget.id);
+    // The reader renders data delivery only, so a manifest that records collaboration
+    // links without relations must not show them as data flows. Authored neighbors are
+    // read in the module passport, which the reader-only focus path does not render.
+    const authoredFlows = (data.relations || []).filter(row => row.kind === 'data_flow' && (row.from === authoredSource.id || row.to === authoredSource.id));
+    if (!authoredFlows.length) {
+      assert.equal(await page.locator('#reader-body [data-relation-id]').count(), 0, 'collaboration links must not be rendered as data delivery');
+    }
+    await page.locator('#module-search').fill(authoredSource.name);
+    await page.locator(`[data-search-module="${authoredSource.id}"]`).click();
+    const passportLink = page.locator(`#dialog-body .module-passport [data-focus-module="${authoredTarget.id}"]`);
+    await passportLink.waitFor({ state: 'visible' });
+    await page.evaluate(() => { window.__copiedFocusLink = null; });
+    await passportLink.first().click();
+    assert.equal(await page.locator('#dialog-title').textContent(), authoredTarget.name);
+    assert.ok(await page.locator('#dialog-back').isVisible(), 'passport navigation must stay back-navigable');
+    await page.locator('#copy-detail-link').click();
+    const detailFocus = await page.evaluate(() => window.__copiedFocusLink);
+    assert.equal(new URLSearchParams(new URL(detailFocus).hash.slice(1)).get('focus'), authoredTarget.id);
+    assert.equal(new URLSearchParams(new URL(detailFocus).hash.slice(1)).get('reach'), 'downstream');
+    await page.locator('#close-dialog').click();
 
     await page.evaluate(({ view, route }) => { location.hash = '#' + new URLSearchParams({ view, route }).toString(); }, { view: overviewId, route: authoredSource.id + '~' + authoredTarget.id });
     await page.waitForFunction(() => document.getElementById('detail-dialog').open && document.querySelectorAll('.authored-route li').length >= 2);
