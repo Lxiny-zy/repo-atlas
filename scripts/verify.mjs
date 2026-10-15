@@ -72,7 +72,7 @@ try {
   if (data.reviewMode) {
     assert.ok(await page.locator('#review-banner').isVisible());
     assert.ok((await page.locator('#review-banner').innerText()).includes('仅供复核'));
-    const sources = [...data.modules, ...data.views, ...data.chains, ...data.chains.flatMap(chain => chain.stages), ...data.findings, ...data.coverage, ...data.tables, ...data.routes, ...data.flags].flatMap(row => row.sources || []);
+    const sources = [...data.modules, ...(data.relations || []), ...data.views, ...data.chains, ...data.chains.flatMap(chain => chain.stages), ...data.findings, ...data.coverage, ...data.tables, ...data.routes, ...data.flags].flatMap(row => row.sources || []);
     const missing = sources.find(source => source.state === 'unresolved');
     if (missing) {
       await page.evaluate(key => { location.hash = new URLSearchParams({ evidence: key }).toString(); }, missing.key);
@@ -80,14 +80,22 @@ try {
       assert.equal(await page.locator('#dialog-title').innerText(), '证据未解析');
       assert.ok((await page.locator('#dialog-body').innerText()).includes(missing.path));
       assert.equal(await page.locator('#dialog-body pre').count(), 0, 'unresolved evidence must not masquerade as an excerpt');
-      assert.equal(await page.locator('.source-anchor').count(), 0);
+      assert.equal(await page.locator('#dialog-body .source-anchor').count(), 0);
       await page.screenshot({ path: resolve(artifactDirectory, 'unresolved-evidence.png') });
       await page.locator('#close-dialog').click();
+    }
+    const unresolvedModule = data.modules.find(module => module.sources.some(source => source.state === 'unresolved'));
+    if (unresolvedModule) {
+      await page.evaluate(id => window.repoAtlas.focusModule(id, { readerOnly: true, updateHash: false }), unresolvedModule.id);
+      const index = unresolvedModule.sources.findIndex(source => source.state === 'unresolved');
+      assert.equal(await page.locator('#reader-body pre').count(), 0, 'source blocks must not appear in the architecture reader');
+      assert.ok((await page.locator('#reader-body .source-unresolved').allTextContents()).some(text => text.includes(unresolvedModule.sources[index].path)));
+      assert.ok(await page.locator('#reader-body .evidence-reference').count());
     }
     await page.setViewportSize({ width: 320, height: 740 });
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
     await page.screenshot({ path: resolve(artifactDirectory, 'review-mobile.png'), fullPage: true });
-    result.checks.push('review-only banner / unresolved evidence without invented excerpt or line / 320px layout');
+    result.checks.push('review-only banner / dialog and inline unresolved evidence without invented excerpt or line / 320px layout');
   } else {
   const overviewId = (data.views.find(view => view.kind === 'overview' || view.id === 'overview') || data.views[0]).id;
   await page.evaluate(id => window.repoAtlas.navigate(id), overviewId);
@@ -129,8 +137,8 @@ try {
     await page.locator('#close-dialog').click();
     result.checks.push('incremental update chip / changed files / stale evidence');
   }
-  const diagrams = data.views.filter(view => view.diagram && view.kind !== 'sequence');
-  const narratives = data.views.filter(view => ['sequence', 'narrative'].includes(view.kind) || /^\s*sequenceDiagram\b/.test(view.diagram || ''));
+  const diagrams = data.views.filter(view => view.diagram);
+  const narratives = data.views.filter(view => view.id !== 'catalog' && !view.diagram);
   for (const view of narratives) {
     await page.evaluate(id => window.repoAtlas.navigate(id), view.id);
     assert.ok(await page.locator('#sequence-section').isVisible(), view.id + ' flow narrative is hidden');
@@ -160,10 +168,10 @@ try {
           data.chains[data.chains.findIndex(row => row.id === chain.id)] = chain;
         }, { original: testedChain, sample });
         await page.evaluate(id => window.repoAtlas.navigate(id), testedChain.readingView);
-        const card = page.locator(`[data-narrative-chain="${testedChain.id}"]`);
-        assert.equal(await card.locator(`.sequence-card-head .status-${sample.badge}`).count(), 1);
-        assert.equal(await card.locator('.sequence-card-head .status-stale').count(), sample.review ? 1 : 0);
-        assert.ok((await card.locator('.chain-coverage-summary').innerText()).includes(sample.text));
+        const context = page.locator('#flow-context');
+        assert.equal(await context.locator(`.status-${sample.badge}`).count(), 1);
+        assert.equal(await context.locator('.status-stale').count(), sample.review ? 1 : 0);
+        assert.ok((await context.locator('.chain-coverage-summary').innerText()).includes(sample.text));
         await page.evaluate(id => window.repoAtlas.navigate(id), overviewId);
         await page.locator('#chain-filter').selectOption('covered');
         assert.equal(await page.locator(`#chain-grid [data-chain="${testedChain.id}"]`).count(), sample.covered ? 1 : 0);
@@ -183,17 +191,15 @@ try {
       await page.goForward();
       await page.waitForFunction(id => window.repoAtlas.currentView === id, testedChain.readingView);
     }
-    const stageButton = page.locator(`[data-stage-evidence="${testedChain.id}"]`).first();
-    if (await stageButton.count()) {
-      await stageButton.click();
-      const sourceButtons = await page.locator('[data-direct-source]').count();
-      await page.locator('[data-direct-source]').first().click();
-      assert.equal(await page.locator('.source-anchor').count(), 1);
-      await page.locator('#dialog-back').click();
-      assert.equal(await page.locator('[data-direct-source]').count(), sourceButtons);
-      await page.locator('[data-direct-source]').last().click();
-      assert.ok((await page.locator('.source-code').textContent()).length > 0, 'return lost the source collection');
+    const evidencedStage = testedChain.stages.find(stage => stage.sources.length);
+    if (evidencedStage) {
+      await page.locator(`[data-stage-anchor="${testedChain.id}/${evidencedStage.id}"]`).click();
+      assert.equal(await page.locator('#reading-panel').getAttribute('data-subject'), `${testedChain.id}/${evidencedStage.id}`);
+      await page.locator('#reader-body > .reader-evidence .evidence-reference').first().click();
+      assert.equal(await page.locator('#dialog-body .source-anchor').count(), 1);
+      assert.equal(await page.locator('#dialog-body .source-code').textContent(), evidencedStage.sources[0].excerpt);
       await page.locator('#close-dialog').click();
+      assert.equal(await page.locator('#reading-panel').getAttribute('data-subject'), `${testedChain.id}/${evidencedStage.id}`);
     }
     result.checks.push('coverage aggregation / not-applicable denominator / stage freshness / direct evidence / dialog return / browser history');
   }
@@ -202,6 +208,12 @@ try {
     assert.equal(await page.locator('#graph-viewport').getAttribute('data-render-state'), 'ready', view.id + ' failed');
     const info = await page.locator('#graph-stage svg').evaluate(svg => ({ width: svg.viewBox.baseVal.width, height: svg.viewBox.baseVal.height, labels: svg.querySelectorAll('text, foreignObject').length }));
     assert.ok(info.width > 0 && info.height > 0 && info.labels > 0, 'empty SVG: ' + view.id);
+    for (const binding of view.bindings || []) {
+      const node = page.locator(`#graph-stage [data-diagram-node="${binding.node}"]`);
+      assert.equal(await node.count(), 1, `missing/duplicate bound node: ${view.id}/${binding.node}`);
+      assert.equal(await node.getAttribute('data-graph-chain'), binding.chain);
+      assert.equal(await node.getAttribute('data-graph-stage'), binding.stage);
+    }
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'horizontal overflow: ' + view.id);
     result.diagrams.push({ id: view.id, ...info });
   }
@@ -240,7 +252,7 @@ try {
   const technical = page.locator('#dialog-body [data-technical-evidence]');
   assert.equal(await technical.getAttribute('open'), null, 'source locations should be opt-in');
   await technical.locator('summary').click();
-  await page.locator(`[data-evidence-module="${module.id}"]`).first().click();
+  await page.locator(`#dialog-body [data-evidence-module="${module.id}"]`).first().click();
   assert.equal(await page.locator('#dialog-body pre').textContent(), module.sources[0].excerpt);
   const sourceHref = await page.locator('#dialog-body a').getAttribute('href');
   await readFile(new URL(sourceHref, pathToFileURL(html)), 'utf8');
@@ -254,20 +266,17 @@ try {
   const authoredTarget = authoredSource ? data.modules.find(item => item.id === authoredSource.links.find(id => data.modules.some(moduleRow => moduleRow.id === id))) : null;
   if (authoredSource && authoredTarget) {
     await page.evaluate(({ view, focus, reach }) => { location.hash = '#' + new URLSearchParams({ view, focus, reach }).toString(); }, { view: overviewId, focus: authoredSource.id, reach: 'downstream' });
-    // Search already selected this module. Its ID alone can satisfy the wait
-    // before the asynchronous hash navigation has restored the inline detail.
-    await page.locator('#module-detail').waitFor({ state: 'visible' });
     await page.waitForFunction(id => window.repoAtlas.selectedModule === id, authoredSource.id);
-    assert.ok(await page.locator('#module-detail').isVisible(), 'module focus detail is hidden');
-    assert.ok(await page.locator('.module-passport').isVisible(), 'relationship passport is hidden');
+    assert.ok(await page.locator('#reading-panel').isVisible(), 'module relationship reader is hidden');
+    assert.ok(!(await page.locator('#module-detail').isVisible()), 'focus links must return to the architecture, not a source detail section');
     assert.equal(new URLSearchParams(new URL(await page.evaluate(() => location.href)).hash.slice(1)).get('focus'), authoredSource.id);
     await page.evaluate(() => { window.__copiedFocusLink = null; Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async value => { window.__copiedFocusLink = value; } } }); });
-    await page.locator('.module-copy-link').click();
+    await page.locator('#copy-view-link').click();
     const copiedFocus = await page.evaluate(() => window.__copiedFocusLink);
     assert.equal(new URLSearchParams(new URL(copiedFocus).hash.slice(1)).get('focus'), authoredSource.id);
     assert.equal(new URLSearchParams(new URL(copiedFocus).hash.slice(1)).get('reach'), 'downstream');
-    assert.ok(await page.locator(`[data-focus-module="${authoredTarget.id}"]`).count(), 'downstream authored link is missing');
-    await page.locator(`[data-focus-module="${authoredTarget.id}"]`).first().click();
+    assert.ok(await page.locator(`#reader-body [data-focus-architecture="${authoredTarget.id}"]`).count(), 'downstream authored link is missing');
+    await page.locator(`#reader-body [data-focus-architecture="${authoredTarget.id}"]`).first().click();
     assert.equal(await page.evaluate(() => window.repoAtlas.selectedModule), authoredTarget.id);
     assert.equal(new URLSearchParams(new URL(await page.evaluate(() => location.href)).hash.slice(1)).get('focus'), authoredTarget.id);
 
@@ -282,10 +291,13 @@ try {
 
   const firstNode = page.locator('#graph-stage [data-module]').first();
   if (await firstNode.count()) {
+    const moduleId = await firstNode.getAttribute('data-module');
     await firstNode.click();
-    assert.ok(await page.locator('#detail-dialog').isVisible());
-    await page.locator('#close-dialog').click();
-    result.checks.push('clickable flowchart node');
+    assert.equal(await page.locator('#reading-panel').getAttribute('data-subject'), moduleId);
+    assert.ok(await page.locator('#reader-body .source-reference').count());
+    assert.equal(await page.locator('#reader-body pre').count(), 0);
+    assert.ok(!(await page.locator('#detail-dialog').isVisible()));
+    result.checks.push('flowchart node selects relationship context and evidence hyperlinks');
   }
   const evidencedView = diagrams.find(view => view.sources?.length);
   if (evidencedView) {
@@ -426,7 +438,7 @@ try {
     await detailPage.evaluate(hash => { location.hash = hash; }, '#' + new URLSearchParams(stageRoute));
     await detailPage.waitForFunction(() => document.querySelector('.is-target'));
     assert.equal(await detailPage.locator('.is-target').getAttribute('data-stage-anchor'), `${linkedChain.id}/${stage.id}`);
-    await detailPage.locator('.is-target [data-copy-stage]').click();
+    await detailPage.locator('#reader-body [data-copy-stage]').click();
     assert.equal(new URLSearchParams(new URL(await detailPage.evaluate(() => window.__copiedLink)).hash.slice(1)).get('stage'), stage.id);
     await detailPage.evaluate(() => { location.hash = '#view=missing&chain=missing&stage=missing'; });
     await detailPage.waitForFunction(() => document.getElementById('toast').textContent.includes('定位目标不存在'));
@@ -446,6 +458,7 @@ try {
     await phone.evaluate(id => window.repoAtlas.navigate(id), view.id);
     assert.equal(await phone.locator('#graph-viewport').getAttribute('data-render-state'), 'ready');
     assert.ok(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    for (const binding of view.bindings || []) assert.equal(await phone.locator(`#graph-stage [data-diagram-node="${binding.node}"]`).count(), 1, `mobile node binding missing: ${view.id}/${binding.node}`);
     if (view.mobileDiagram) {
       await phone.locator('#show-source').click();
       assert.equal(await phone.locator('#dialog-body pre').textContent(), view.mobileDiagram);
@@ -469,6 +482,15 @@ try {
     assert.ok(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'mobile narrative overflow');
     assert.ok(await phone.locator('#sequence-section').evaluate(section => section.getBoundingClientRect().top < innerHeight), 'mobile flow starts below the first screen');
     result.layout.push(await phone.evaluate(() => ({ view: window.repoAtlas.currentView, width: innerWidth, contentTop: Math.round(document.getElementById('sequence-section').getBoundingClientRect().top) })));
+    const stageButton = phone.locator('#sequence-list [data-stage-anchor]').first();
+    if (await stageButton.count()) {
+      const subject = await stageButton.getAttribute('data-stage-anchor');
+      await stageButton.click();
+      assert.equal(await phone.locator('#reading-panel').getAttribute('data-subject'), subject);
+      assert.ok(await phone.locator('#reading-panel').isVisible());
+      await phone.locator('#reader-tab').press('Home');
+      assert.ok(await phone.locator('#sequence-section').isVisible());
+    }
   }
   if (narratives.length) await phone.screenshot({ path: resolve(artifactDirectory, 'mobile-flow.png'), fullPage: true });
   result.checks.push('mobile 390px / 320px / navigation / diagram variants');

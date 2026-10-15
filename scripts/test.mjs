@@ -31,7 +31,7 @@ try {
   run(workspace, 'build.mjs', 'atlas.json');
   const report = await readFile(resolve(workspace, 'report.html'), 'utf8');
   const reportData = JSON.parse(report.match(/<script id="graph-data" type="application\/json">([\s\S]*?)<\/script>/)[1]);
-  assert.equal(reportData.stats.diagrams, 1, 'sequence view should not count as a rendered diagram');
+  assert.equal(reportData.stats.diagrams, 2, 'authored sequence diagrams must be rendered and counted');
   assert.ok(reportData.views.some(view => view.kind === 'narrative' && view.chainIds?.includes('audit_order')), 'chain without a narrative view should receive one');
   assert.equal(reportData.chains.find(chain => chain.id === 'audit_order').readingView, 'chain_audit_order');
 

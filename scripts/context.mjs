@@ -31,6 +31,7 @@ const entityKey = (type, id) => `${type}:${id}`;
 const entities = new Map();
 const addEntity = (type, row, id = row.id ?? row.name ?? row.prefix) => entities.set(entityKey(type, id), { type, id, row });
 for (const row of bundle.manifest.modules || []) addEntity('module', row);
+for (const row of bundle.manifest.relations || []) addEntity('relation', { ...row, modules: [row.from, row.to] });
 for (const row of bundle.manifest.views || []) addEntity('view', row);
 for (const row of bundle.manifest.chains || []) {
   addEntity('chain', row);
@@ -101,7 +102,8 @@ const relationships = {
   impactedModules: [...impactedModuleIds].map(id => ({ id, name: moduleById.get(id)?.name || id })),
   upstreamModules: upstream.map(id => ({ id, name: moduleById.get(id)?.name || id })),
   downstreamModules: downstream.map(id => ({ id, name: moduleById.get(id)?.name || id })),
-  relatedChains
+  relatedChains,
+  declaredRelations: (bundle.manifest.relations || []).filter(row => impactedModuleIds.has(row.from) || impactedModuleIds.has(row.to)).map(row => ({ id: row.id, from: row.from, to: row.to, kind: row.kind, label: row.label, payload: row.payload || [] }))
 };
 
 const previousSummaries = previousManifest ? buildSummaryIndex(previousManifest) : baseline.summaryIndex || {};
@@ -110,6 +112,8 @@ const selectedEntities = [...selectedKeys].map(key => {
   return { key, type, id, title: row.title || row.name || row.label || row.area || row.prefix || id,
     summary: row.summary || row.description || '', previousSummary: previousSummaries[key]?.summary ?? null,
     status: row.status || null, modules: row.modules || [], stale: staleEntities.has(key),
+    ...(type === 'relation' ? { from: row.from, to: row.to, kind: row.kind, payload: row.payload || [] } : {}),
+    ...(type === 'table' && row.fields ? { fields: row.fields } : {}),
     sources: sourceRows.filter(source => entityKey(source.entityType, source.entityId) === key).map(source => source.key)
   };
 });

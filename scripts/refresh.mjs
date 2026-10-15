@@ -39,6 +39,7 @@ next.update = {
   reviewRequired: Boolean(delta.summary?.reviewRequired || bundle.manifest.update?.reviewRequired)
 };
 next.modules = (next.modules || []).map(row => mark(row, `module:${row.id}`));
+if (next.relations) next.relations = next.relations.map(row => mark(row, `relation:${row.id}`));
 next.views = (next.views || []).map(row => mark(row, `view:${row.id}`));
 next.chains = (next.chains || []).map(row => {
   const chain = mark(row, `chain:${row.id}`);
@@ -50,7 +51,7 @@ next.coverage = (next.coverage || []).map(row => mark(row, `coverage:${row.id}`)
 next.tables = (next.tables || []).map(row => mark(row, `table:${row.name}`));
 next.routes = (next.routes || []).map(row => mark(row, `route:${row.prefix}`));
 next.flags = (next.flags || []).map(row => mark(row, `flag:${row.name}`));
-if ([...next.modules, ...next.views, ...next.chains, ...next.findings, ...next.coverage, ...next.tables, ...next.routes, ...next.flags].some(row => row.reviewRequired)) next.update.reviewRequired = true;
+if ([...next.modules, ...(next.relations || []), ...next.views, ...next.chains, ...next.findings, ...next.coverage, ...next.tables, ...next.routes, ...next.flags].some(row => row.reviewRequired)) next.update.reviewRequired = true;
 if (next.update.unmappedChanges.length || next.update.staleEvidence.length) next.update.reviewRequired = true;
 await atomicWrite(bundle.workspace, output, writeJson(next), { protectedPaths });
 console.log(JSON.stringify({ output, mode: next.update.mode, ...delta.summary }, null, 2));

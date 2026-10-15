@@ -4,14 +4,19 @@
   data.findings ||= [];
   data.coverage ||= [];
   data.chains ||= [];
+  data.relations ||= [];
   data.update ||= null;
+  const dataFlows = data.relations.filter(row => row.kind === 'data_flow');
   const $ = id => document.getElementById(id);
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
   const icon = name => `<i data-lucide="${esc(name)}"></i>`;
   const icons = () => window.lucide.createIcons();
   const byId = id => data.modules.find(module => module.id === id);
   for (const module of data.modules) module.links ||= [];
-  const moduleLinkIds = module => (module?.links || []).filter(id => byId(id));
+  const moduleLinkIds = module => [...new Set(dataFlows.length
+    ? dataFlows.filter(row => row.from === module?.id).map(row => row.to)
+    : [...(module?.links || []), ...data.relations.filter(row => row.kind === 'dependency' && row.from === module?.id).map(row => row.to)])].filter(id => byId(id));
+  const byTable = name => data.tables.find(table => table.name === name);
   function authoredNeighbors(id, direction) {
     if (direction === 'upstream') return data.modules.filter(module => moduleLinkIds(module).includes(id));
     return moduleLinkIds(byId(id)).map(linkId => byId(linkId)).filter(Boolean);
@@ -46,8 +51,18 @@
   const dialog = $('detail-dialog');
   let current = null;
   let selectedModule = null;
+  let selectedStage = null;
+  let selectedTable = null;
+  let visualPane = 'diagram';
   let renderSerial = 0;
   let renderQueue = Promise.resolve();
+  let flowRoutes = [];
+  let flowFrame = null;
+  let flowLastTime = null;
+  let flowElapsed = 0;
+  let flowPreference = null;
+  let flowInView = true;
+  let printing = false;
   let diagramSize = { width: 1000, height: 600 };
   let camera = { x: 0, y: 0, scale: 1 };
   let fitMode = true;
@@ -79,10 +94,11 @@
   const dialogHistory = [];
   const overviewId = (data.views.find(view => view.kind === 'overview' || view.id === 'overview') || data.views[0]).id;
   const evidenceTargets = new Map();
-  for (const kind of ['modules', 'views', 'chains', 'findings', 'coverage', 'tables', 'routes', 'flags']) {
+  for (const kind of ['modules', 'relations', 'views', 'chains', 'findings', 'coverage', 'tables', 'routes', 'flags']) {
     for (const row of data[kind]) {
-      for (const source of row.sources || []) if (source.key) evidenceTargets.set(source.key, { source, view: kind === 'views' ? row.id : kind === 'chains' ? row.readingView : overviewId, ...(kind === 'chains' ? { chain: row.id } : {}) });
-      if (kind === 'chains') for (const stage of row.stages) for (const source of stage.sources) if (source.key) evidenceTargets.set(source.key, { source, view: row.readingView || overviewId, chain: row.id, stage: stage.id });
+      const view = kind === 'views' ? row.id : kind === 'chains' ? row.readingView : kind === 'relations' ? data.views.find(view => view.relations?.includes(row.id))?.id : kind === 'tables' ? data.views.find(view => view.tables?.includes(row.name))?.id : overviewId;
+      for (const source of row.sources || []) if (source.key) evidenceTargets.set(source.key, { source, title: row.title || row.name || row.label, view: view || overviewId, ...(kind === 'chains' ? { chain: row.id } : {}) });
+      if (kind === 'chains') for (const stage of row.stages) for (const source of stage.sources) if (source.key) evidenceTargets.set(source.key, { source, title: row.title + ' · ' + stage.label, view: row.readingView || overviewId, chain: row.id, stage: stage.id });
     }
   }
   const fragment = route => '#' + new URLSearchParams(Object.entries(route).filter(([, value]) => value != null)).toString();
@@ -100,7 +116,11 @@
       $('dialog-body').querySelector('input').select();
     }
   }
-  const smallScreen = window.matchMedia('(max-width: 800px)');
+  const smallScreen = window.matchMedia('(max-width: 640px)');
+  const compactLayout = window.matchMedia('(max-width: 920px)');
+  const collapsedNavigation = window.matchMedia('(max-width: 1024px)');
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const printMedia = window.matchMedia('print');
   const kindLabels = { fact: '事实', risk: '风险', gap: '缺口', decision: '决策' };
   const statusLabels = { confirmed: '已确认', inferred: '推断', unverified: '待验证', covered: '已覆盖', partial: '部分覆盖', unknown: '待确认', not_applicable: '不适用' };
   const statusBadge = (value, label = statusLabels[value] || value) => `<span class="status-badge status-${esc(value)}">${esc(label)}</span>`;
@@ -112,6 +132,7 @@
 
   mermaid.initialize({
     startOnLoad: false, securityLevel: 'strict', theme: 'base',
+    themeCSS: '.edgeLabel rect { opacity: 1; }',
     fontFamily: '"Segoe UI", "Microsoft YaHei", sans-serif',
     themeVariables: {
       fontFamily: '"Segoe UI", "Microsoft YaHei", sans-serif', fontSize: '14px',
@@ -176,9 +197,9 @@
     else $('dialog-title').focus({ preventScroll: true });
   }
 
-  function showEvidence(source) {
+  function showEvidence(source, contextTitle = null) {
     if (!source) return;
-    const context = dialog.open ? $('dialog-title').textContent : current?.title;
+    const context = contextTitle || (dialog.open ? $('dialog-title').textContent : current?.title);
     const target = evidenceTargets.get(source.key);
     const route = source.key ? { view: target?.view || current?.id || overviewId, chain: target?.chain, stage: target?.stage, evidence: source.key } : null;
     if (source.state === 'unresolved') {
@@ -228,32 +249,314 @@
       <p class="update-note">候选文件：${esc(update.deltaPath || '未记录')}<br>基线：${esc(update.baseSnapshot || '未记录')}</p>`);
   }
 
-  function isSequenceView(view) {
-    return view?.kind === 'sequence' || view?.kind === 'narrative' || /^\s*sequenceDiagram\b/.test(view?.diagram || '');
+  function viewChains(view) {
+    if ((view.kind === 'overview' || view.id === 'overview') && !view.bindings?.length) return [];
+    return data.chains.filter(chain => view.chainIds?.includes(chain.id) || chain.views?.includes(view.id));
   }
 
-  function renderSequenceDescription(view) {
-    const section = $('sequence-section');
-    const linkedChains = view.chainIds?.length
-      ? view.chainIds.map(id => data.chains.find(chain => chain.id === id)).filter(Boolean)
-      : data.chains.filter(chain => chain.views?.includes(view.id));
-    section.hidden = false;
-    section.classList.toggle('single-flow', linkedChains.length === 1);
-    $('sequence-count').textContent = linkedChains.length ? `${linkedChains.length} 条链路` : '自然语言流程';
-    $('sequence-intro').textContent = linkedChains.length
-      ? '从开始到结束逐步阅读。需要核对某一步时，再打开它的源码依据。'
-      : '这里先列出已经整理的说明，完整的处理步骤与依据还待补充。';
-    $('sequence-list').innerHTML = linkedChains.length ? linkedChains.map(chain => {
-      const stages = chain.stages || [];
-      return `<article class="sequence-card" data-narrative-chain="${chain.id}"><div class="sequence-card-head"><div><span class="eyebrow">${esc(chainKindLabel(chain))}</span><h4>${esc(chain.title)}</h4></div><div class="status-stack">${chainBadges(chain)}</div></div>
-        <p class="sequence-summary">${esc(chain.summary)}</p>
-        <div class="sequence-route"><strong>从哪里开始</strong><span>${esc(chain.trigger)}</span><b>→</b><strong>最后得到什么</strong><span>${esc(chain.outcome)}</span></div>
-        <p class="chain-coverage-summary">${esc(chainProgressLabel(chain))}</p>
-        <ol class="sequence-steps">${stages.map((stage, index) => `<li data-stage-anchor="${chain.id}/${stage.id}"><span class="sequence-step-index">${index + 1}</span><div><div class="sequence-step-title"><strong>${esc(stage.label)}</strong>${statusBadge(stage.status)}${freshnessBadge(stage)}<button class="text-link stage-permalink" data-copy-stage="${chain.id}" data-stage="${stage.id}" aria-label="复制阶段链接">${icon('link')}</button></div><p>${esc(stage.summary)}</p>${stage.nextCheck ? `<small class="next-question"><strong>还需要确认</strong>${esc(stage.nextCheck)}</small>` : ''}${stage.sources?.length ? `<button class="text-link sequence-evidence" data-stage-evidence="${chain.id}" data-stage="${stage.id}">${icon('file-code-2')}查看 ${stage.sources.length} 处源码依据</button>` : ''}</div></li>`).join('')}</ol>
-        <button class="text-link sequence-open-chain" data-open-chain="${esc(chain.id)}">查看这条流程的依据与分工</button>
-      </article>`;
-    }).join('') : `<div class="sequence-card sequence-card-empty"><p>${esc(view.subtitle || '这部分的开始条件、处理过程与结果还待补充。')}</p>${(view.notes || []).map(([title, text]) => `<div class="sequence-note"><strong>${esc(title)}</strong><p>${esc(text)}</p></div>`).join('')}</div>`;
+  function stageMapMarkup(chain) {
+    return `<ol class="stage-map" data-narrative-chain="${chain.id}">${chain.stages.map((item, index) => `<li><button type="button" class="stage-stop stage-${esc(item.status)}" title="${esc(item.label)}" data-select-stage="${chain.id}" data-stage="${item.id}" data-stage-anchor="${chain.id}/${item.id}" aria-pressed="false"><span class="stage-number">${String(index + 1).padStart(2, '0')}</span><span class="stage-stop-copy"><strong>${esc(item.label)}</strong><small>${esc(stageKindLabel(item))} · ${esc(statusLabels[item.status])}${needsReview(item) ? ' · 待复核' : ''}</small></span></button></li>`).join('')}</ol>`;
+  }
+
+  function renderSequenceDescription(view, chainId) {
+    const chains = viewChains(view);
+    const chain = chains.find(item => item.id === chainId) || chains[0];
+    $('flow-context').hidden = !chain;
+    $('stage-nav').hidden = !chain || !view.diagram;
+    $('sequence-section').hidden = Boolean(view.diagram);
+    $('flow-context').innerHTML = chain ? `<div class="flow-context-heading">${chains.length > 1 ? `<label>业务流程 <select id="reader-chain" aria-label="选择当前图中的业务流程">${chains.map(item => `<option value="${item.id}" ${item.id === chain.id ? 'selected' : ''}>${esc(item.title)}</option>`).join('')}</select></label>` : `<span>${esc(chainKindLabel(chain))} · ${esc(chain.title)}</span>`}<div class="flow-status"><span class="chain-coverage-summary">${esc(chainProgressLabel(chain))}</span><span class="status-stack">${chainBadges(chain)}</span></div></div><div class="flow-endpoints"><div><small>触发条件</small><p>${esc(chain.trigger)}</p></div><span aria-hidden="true">→</span><div><small>处理结果</small><p>${esc(chain.outcome)}</p></div></div>` : '';
+    $('stage-nav').innerHTML = chain && view.diagram ? `<p class="stage-nav-hint">选择环节，对照图与实现 <span>编号用于阅读定位，执行分支以图中连线为准</span></p>${stageMapMarkup(chain)}` : '';
+    $('sequence-count').textContent = chain ? `${chain.stages.length} 个阶段` : '待补充';
+    $('sequence-intro').textContent = '这里按报告整理顺序列出阶段；未提供流程图时，不推断执行连线。点击卡片查看处理条件与数据变化。';
+    $('sequence-list').innerHTML = view.diagram ? '' : chain ? stageMapMarkup(chain) : `<p class="empty-state">${esc(view.subtitle || '尚未整理流程阶段。')}</p>`;
+    return chain;
+  }
+
+  function sourceReferences(sources = []) {
+    return sources.map(source => {
+      const target = evidenceTargets.get(source.key);
+      const href = fragment({ view: target?.view || current?.id || overviewId, chain: target?.chain, stage: target?.stage, evidence: source.key });
+      return `<span class="source-reference-row">${source.state === 'unresolved' ? `<span class="source-unresolved">${esc(source.path)} · 未解析</span>` : `<a class="source-reference" href="${fileUrl(source.path)}#L${source.line}" target="_blank" rel="noopener">${esc(source.path)}:${sourceLocation(source)} ${icon('external-link')}</a>`}${source.key ? `<a class="evidence-reference" href="${esc(href)}" data-evidence-key="${esc(source.key)}">${source.state === 'unresolved' ? '待复核原因' : '摘录'}</a>` : ''}</span>`;
+    }).join('');
+  }
+
+  function readerMarkup(title, label, body, sources) {
+    $('reader-body').innerHTML = `<div class="reader-description"><div class="reader-heading"><span class="eyebrow">${esc(label)}</span><h4>${esc(title)}</h4></div>${body}</div>${sources?.length ? `<footer class="reader-evidence"><span>源码依据</span>${sourceReferences(sources)}</footer>` : ''}`;
+    $('reader-tab').textContent = ({ module: '模块与数据流', table: '字段与关联', stage: '流程说明', overview: '架构导览' })[$('reading-panel').dataset.kind] || '图解说明';
+    $('reading-panel').scrollTop = 0;
     icons();
+  }
+
+  function visibleRelations() {
+    const generated = current?.relationDiagrams?.data_flow;
+    const ids = generated?.relations || current?.relations;
+    if (generated || ids?.length) return dataFlows.filter(row => ids.includes(row.id));
+    return dataFlows.filter(row => current?.modules.includes(row.from) && current?.modules.includes(row.to));
+  }
+
+  function stopFlowFrame() {
+    if (flowFrame !== null) cancelAnimationFrame(flowFrame);
+    flowFrame = null;
+    flowLastTime = null;
+  }
+
+  function clearFlowAnimation() {
+    stopFlowFrame();
+    flowRoutes = [];
+    flowElapsed = 0;
+    stage.querySelectorAll('.flow-particles').forEach(layer => layer.remove());
+    $('flow-playback').hidden = true;
+    viewport.dataset.flowState = 'unavailable';
+  }
+
+  function drawFlowParticles() {
+    for (const route of flowRoutes) {
+      if (!route.active) continue;
+      route.particles.forEach((particle, index) => {
+        // Constant illustrative speed; never infer execution order or throughput.
+        const distance = (flowElapsed * .055 + route.length * (.15 + index / route.particles.length)) % route.length;
+        const point = route.path.getPointAtLength(distance);
+        particle.setAttribute('cx', point.x);
+        particle.setAttribute('cy', point.y);
+      });
+    }
+  }
+
+  function canAnimateFlows() {
+    return (flowPreference ?? !reducedMotion.matches) && flowRoutes.some(route => route.active)
+      && !document.hidden && !printing && !printMedia.matches && flowInView
+      && !(compactLayout.matches && visualPane === 'reader') && viewport.dataset.renderState === 'ready';
+  }
+
+  function animateFlows(timestamp) {
+    flowFrame = null;
+    if (!canAnimateFlows()) { syncFlowPlayback(); return; }
+    if (flowLastTime !== null) flowElapsed += Math.min(64, timestamp - flowLastTime);
+    flowLastTime = timestamp;
+    drawFlowParticles();
+    flowFrame = requestAnimationFrame(animateFlows);
+  }
+
+  function syncFlowPlayback() {
+    const available = flowRoutes.length > 0;
+    const active = flowRoutes.filter(route => route.active).length;
+    const enabled = flowPreference ?? !reducedMotion.matches;
+    const running = available && canAnimateFlows();
+    $('flow-playback').hidden = !available;
+    $('toggle-flow').disabled = !active;
+    $('toggle-flow').setAttribute('aria-pressed', String(enabled));
+    $('toggle-flow').title = reducedMotion.matches && !enabled ? '已按系统偏好减少动态效果，可手动播放' : enabled ? '暂停数据流动画' : '播放数据流动画';
+    $('flow-toggle-label').textContent = enabled ? '暂停流动' : '播放流动';
+    $('flow-pause-icon').hidden = !enabled;
+    $('flow-play-icon').hidden = enabled;
+    $('flow-status').textContent = selectedModule ? `${active} / ${flowRoutes.length} 条关联数据流` : `${flowRoutes.length} 条数据流`;
+    viewport.dataset.flowState = !available ? 'unavailable' : !enabled ? 'paused' : running ? 'playing' : 'suspended';
+    if (running) {
+      if (flowFrame === null) flowFrame = requestAnimationFrame(animateFlows);
+    } else stopFlowFrame();
+  }
+
+  function syncFlowSelection() {
+    for (const route of flowRoutes) {
+      const related = route.relation.from === selectedModule || route.relation.to === selectedModule;
+      route.active = !selectedModule || related;
+      route.layer.style.display = route.active ? '' : 'none';
+      route.layer.classList.toggle('is-focused-flow', Boolean(selectedModule && related));
+    }
+    drawFlowParticles();
+    syncFlowPlayback();
+  }
+
+  function prepareFlowAnimation(svg, variant) {
+    const relations = new Map(visibleRelations().map(row => [row.id, row]));
+    const paths = new Map([...svg.querySelectorAll('path.flowchart-link')].map(path => [path.id, path]));
+    for (const binding of variant?.edgeBindings || []) {
+      const relation = relations.get(binding.relation), path = paths.get(binding.edge);
+      if (!relation || !path || !path.classList.contains('LS-atlas_' + relation.from) || !path.classList.contains('LE-atlas_' + relation.to)) continue;
+      path.dataset.relationId = relation.id;
+      path.dataset.relationKind = relation.kind;
+      if (relation.kind !== 'data_flow') continue;
+      const length = path.getTotalLength();
+      if (!Number.isFinite(length) || length <= 0) continue;
+      const layer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      layer.setAttribute('class', 'flow-particles');
+      layer.setAttribute('aria-hidden', 'true');
+      layer.setAttribute('pointer-events', 'none');
+      layer.dataset.flowRelation = relation.id;
+      if (path.hasAttribute('transform')) layer.setAttribute('transform', path.getAttribute('transform'));
+      const particles = Array.from({ length: Math.min(3, Math.max(1, Math.ceil(length / 180))) }, () => {
+        const particle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        particle.setAttribute('class', 'flow-particle');
+        particle.setAttribute('r', '3.5');
+        layer.appendChild(particle);
+        return particle;
+      });
+      // Share the path's coordinate space and stay behind node and edge labels.
+      path.after(layer);
+      flowRoutes.push({ relation, path, length, layer, particles, active: true });
+    }
+    syncFlowSelection();
+  }
+
+  function relationCards(rows, heading) {
+    rows = rows.filter(row => row.kind === 'data_flow');
+    if (!rows.length) return '';
+    return `<section class="relation-group"><h5>${esc(heading)} <span>${rows.length}</span></h5>${rows.map(row => `<article class="relation-card relation-data_flow" data-relation-id="${row.id}"><div class="relation-direction"><button class="text-link" data-focus-architecture="${row.from}">${esc(byId(row.from).name)}</button><span aria-hidden="true">→</span><button class="text-link" data-focus-architecture="${row.to}">${esc(byId(row.to).name)}</button>${freshnessBadge(row)}</div><strong>${esc(row.label)}</strong>${row.payload?.length ? `<div class="payload-list">${row.payload.map(value => `<span>${esc(value)}</span>`).join('')}</div>` : ''}<p class="relation-summary">${esc(row.summary)}</p>${row.sources?.length ? `<details><summary>查看源码依据</summary>${sourceReferences(row.sources)}</details>` : ''}</article>`).join('')}</section>`;
+  }
+
+  function renderArchitectureOverview(view) {
+    selectedModule = null;
+    selectedTable = null;
+    $('reading-panel').dataset.kind = 'overview';
+    $('reading-panel').dataset.subject = view.id;
+    const rows = visibleRelations();
+    readerMarkup('模块职责与数据流向', '架构导览', `<p class="reader-summary">先看各模块负责什么，再沿箭头了解传递的数据。点击模块可查看流入、流出与关联数据对象。</p><div class="architecture-stats"><span><b>${view.modules.length}</b> 个模块</span><span><b>${rows.length}</b> 条数据流</span></div>${rows.length ? '<div class="direction-guide"><p><span class="data-line"></span> 数据提供方 → 数据接收方</p><p>连线标注传递内容；处理先后与分支见业务流程。</p></div>' : '<p class="reader-empty">本视图尚未记录数据流向，可先查看模块职责。</p>'}<div class="module-entry-list">${view.modules.map(id => `<button data-focus-architecture="${id}">${icon(byId(id).icon)}<span>${esc(byId(id).name)}<small>${esc(byId(id).summary)}</small></span>${icon('arrow-up-right')}</button>`).join('')}</div>`, view.sources);
+  }
+
+  function dataObjectMarkup(table) {
+    const fields = table.fields || [];
+    return `<p class="reader-summary">${esc(table.description)}</p>${fields.length ? `<div class="field-table-wrap"><table class="field-table"><thead><tr><th>字段</th><th>类型</th><th>含义</th></tr></thead><tbody>${fields.map(field => `<tr><td><code>${esc(field.name)}</code>${field.key ? `<small class="field-key">${esc(field.key)}</small>` : ''}</td><td>${esc(field.type)}</td><td>${esc(field.description)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="reader-empty">字段结构尚未整理。</p>'}${fields.some(field => field.references) ? `<section class="relation-group"><h5>字段关联</h5>${fields.filter(field => field.references).map(field => `<div class="field-reference"><code>${esc(field.name)}</code><span>→</span><button class="text-link" data-focus-table="${esc(field.references.table)}">${esc(field.references.table)}.${esc(field.references.field)}</button><small>${field.references.kind === 'foreign_key' ? '数据库外键' : '逻辑关联 · 不代表数据库约束'}</small></div>`).join('')}</section>` : ''}${table.modules?.length ? `<div class="reader-relations"><span>关联模块</span>${table.modules.map(id => `<button class="text-link" data-focus-architecture="${id}">${esc(byId(id).name)}</button>`).join('')}</div>` : ''}`;
+  }
+
+  function renderDataOverview(view) {
+    selectedModule = null; selectedStage = null; selectedTable = null;
+    $('reading-panel').dataset.kind = 'view'; $('reading-panel').dataset.subject = view.id;
+    readerMarkup('查看字段与关联', '数据结构', `<p class="reader-summary">${esc(view.subtitle || '点击图中的数据对象，查看字段、键和关联关系。')}</p><div class="module-entry-list">${(view.tables || []).map(name => { const table = byTable(name); return `<button data-focus-table="${esc(name)}">${icon('database')}<span>${esc(table.title)}<small>${table.fields?.length || 0} 个已登记字段</small></span>${icon('arrow-up-right')}</button>`; }).join('')}</div><p class="reader-empty">逻辑关联与数据库外键会分别标注，字段类型以本次整理的结构为准。</p>`, view.sources);
+  }
+
+  function inspectDataObject(name, { updateHash = true, reveal = false } = {}) {
+    const table = byTable(name);
+    if (!table) return;
+    selectedModule = null; selectedStage = null; selectedTable = name;
+    $('reading-panel').dataset.kind = 'table';
+    $('reading-panel').dataset.subject = name;
+    readerMarkup(table.title, table.kind, `${freshnessBadge(table)}${dataObjectMarkup(table)}`, table.sources);
+    syncDiagramSelection();
+    if (updateHash) updateReadingHash({ view: current.id, table: name });
+    if (reveal) revealReader();
+  }
+
+  function focusArchitectureModule(id) {
+    if (!byId(id)) return;
+    if (!stage.querySelector(`[data-module="${id}"]`)) {
+      const view = data.views.find(view => view.relationDiagrams && view.modules.includes(id)) || data.views.find(view => view.id !== 'catalog' && view.modules.includes(id));
+      if (view && view.id !== current.id) navigate(view.id, false);
+    }
+    inspectModule(id, false, { readerOnly: true, reveal: true });
+  }
+
+  function focusDataObject(name) {
+    const view = data.views.find(view => view.tables?.includes(name));
+    if (view && view.id !== current.id) navigate(view.id, false);
+    inspectDataObject(name, { reveal: true });
+  }
+
+  function revealReader() {
+    if (compactLayout.matches) {
+      showVisualPane('reader', true);
+      return;
+    }
+    const panel = $('reading-panel');
+    const box = panel.getBoundingClientRect();
+    const headerBottom = document.querySelector('.app-header').getBoundingClientRect().bottom;
+    if (box.top >= innerHeight || box.bottom <= headerBottom) {
+      panel.scrollIntoView({ block: 'start', behavior: 'instant' });
+    }
+  }
+
+  function showVisualPane(pane = visualPane, reveal = false) {
+    visualPane = pane;
+    $('visual-layout').dataset.pane = pane;
+    $('visual-tabs').hidden = !compactLayout.matches;
+    $('diagram-tab').textContent = current?.diagram ? '查看图解' : '阶段导览';
+    for (const name of ['diagram', 'reader']) {
+      const tab = $(name === 'diagram' ? 'diagram-tab' : 'reader-tab');
+      const panel = $(name === 'diagram' ? 'visual-main' : 'reading-panel');
+      tab.setAttribute('aria-selected', String(name === pane));
+      tab.tabIndex = name === pane ? 0 : -1;
+      if (compactLayout.matches) { panel.setAttribute('role', 'tabpanel'); panel.setAttribute('aria-labelledby', tab.id); }
+      else { panel.removeAttribute('role'); panel.removeAttribute('aria-labelledby'); }
+    }
+    scheduleGraphLayout();
+    syncFlowPlayback();
+    if (reveal && compactLayout.matches) $('visual-workspace').scrollIntoView({ block: 'start', behavior: 'instant' });
+  }
+
+  function syncDiagramSelection() {
+    const connected = new Set();
+    if (selectedModule) {
+      for (const row of visibleRelations()) if (row.from === selectedModule || row.to === selectedModule) { connected.add(row.from); connected.add(row.to); }
+      if (!current.relationDiagrams && !current.relations?.length) for (const row of [...authoredNeighbors(selectedModule, 'upstream'), ...authoredNeighbors(selectedModule, 'downstream')]) connected.add(row.id);
+    }
+    if (selectedTable) for (const table of data.tables) for (const field of table.fields || []) {
+      if (field.references && (table.name === selectedTable || field.references.table === selectedTable)) { connected.add(table.name); connected.add(field.references.table); }
+    }
+    stage.querySelectorAll('[data-module], [data-graph-chain], [data-object]').forEach(node => {
+      const exact = Boolean(selectedTable ? node.dataset.object === selectedTable : selectedStage ? node.dataset.graphChain === selectedStage.chain && node.dataset.graphStage === selectedStage.stage : selectedModule && node.dataset.module === selectedModule);
+      node.classList.toggle('is-selected', exact);
+      node.setAttribute('aria-pressed', String(exact));
+      const item = selectedStage && data.chains.find(chain => chain.id === selectedStage.chain)?.stages.find(item => item.id === selectedStage.stage);
+      const related = !exact && (connected.has(node.dataset.module || node.dataset.object) || item?.modules.includes(node.dataset.module));
+      node.classList.toggle('is-related', Boolean(related));
+      node.classList.toggle('is-muted', Boolean((selectedModule || selectedTable) && !exact && !related));
+    });
+    stage.querySelectorAll('path.flowchart-link').forEach(edge => {
+      const id = (current.relationDiagrams ? 'atlas_' : '') + selectedModule;
+      const touches = selectedModule && (edge.classList.contains('LS-' + id) || edge.classList.contains('LE-' + id));
+      edge.classList.toggle('is-focused-edge', Boolean(touches));
+      edge.classList.toggle('is-muted-edge', Boolean(selectedModule && !touches));
+    });
+    const normalizedLabel = value => String(value).replace(/\s+/g, ' ').trim();
+    stage.querySelectorAll('g.edgeLabel').forEach(label => {
+      const matches = current.relationDiagrams ? visibleRelations().filter(row => normalizedLabel(row.label) === normalizedLabel(label.textContent)) : [];
+      label.classList.toggle('is-muted-label', Boolean(selectedModule && matches.length && matches.every(row => row.from !== selectedModule && row.to !== selectedModule)));
+    });
+    $('clear-focus').hidden = !selectedModule && !selectedTable;
+    $('focus-caption').textContent = selectedModule ? `当前模块：${byId(selectedModule).name}` : selectedTable ? `当前对象：${byTable(selectedTable).title}` : current?.tables?.length ? '点击数据对象，查看字段与关联' : '点击模块，查看职责与数据流向';
+    $('focus-caption').title = $('focus-caption').textContent;
+    syncFlowSelection();
+  }
+
+  function renderModuleReader(module) {
+    $('reading-panel').dataset.kind = 'module';
+    $('reading-panel').dataset.subject = module.id;
+    const incoming = dataFlows.filter(row => row.to === module.id);
+    const outgoing = dataFlows.filter(row => row.from === module.id);
+    const objects = data.tables.filter(table => table.modules?.includes(module.id));
+    readerMarkup(module.name, module.category, `<div class="status-stack">${freshnessBadge(module)}</div><p class="reader-summary">${esc(module.summary)}</p>${relationCards(incoming, '流入：接收什么数据')}${relationCards(outgoing, '流出：向谁提供数据')}${!incoming.length && !outgoing.length ? '<p class="reader-empty">该模块的数据流向尚未记录。</p>' : ''}${objects.length ? `<section class="relation-group"><h5>关联数据对象</h5>${objects.map(table => `<button class="related-module" data-focus-table="${esc(table.name)}">${icon('database')}${esc(table.title)} ${icon('arrow-up-right')}</button>`).join('')}</section>` : ''}${module.facts.length ? `<details class="reader-facts"><summary>职责与边界</summary><ul>${module.facts.map(fact => `<li>${esc(fact)}</li>`).join('')}</ul></details>` : ''}`, module.sources);
+  }
+
+  function selectStage(chainId, stageId, { updateHash = true, reveal = false } = {}) {
+    const chain = viewChains(current).find(item => item.id === chainId);
+    const item = chain?.stages.find(item => item.id === stageId);
+    if (!item) return;
+    if (selectedStage?.chain !== chainId) renderSequenceDescription(current, chainId);
+    selectedStage = { chain: chainId, stage: stageId };
+    selectedModule = null;
+    selectedTable = null;
+    $('reading-panel').dataset.kind = 'stage';
+    $('reading-panel').dataset.subject = `${chainId}/${stageId}`;
+    document.querySelectorAll('[data-select-stage]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.selectStage === chainId && button.dataset.stage === stageId)));
+    const index = chain.stages.indexOf(item);
+    const adjacent = offset => chain.stages[index + offset];
+    const navButton = (offset, label) => `<button class="text-link" ${adjacent(offset) ? `data-select-stage="${chainId}" data-stage="${adjacent(offset).id}"` : 'disabled'}>${label}</button>`;
+    readerMarkup(item.label, `${chain.title} · ${index + 1} / ${chain.stages.length}`, `<div class="status-stack">${statusBadge(item.status)}${freshnessBadge(item) || freshnessBadge(chain)}</div><p class="reader-summary">${esc(item.summary)}</p>${item.nextCheck ? `<p class="next-question"><strong>还需要确认</strong>${esc(item.nextCheck)}</p>` : ''}${item.modules.length ? `<div class="reader-relations"><span>参与模块</span>${item.modules.map(id => `<button class="text-link" data-focus-architecture="${id}">${esc(byId(id).name)}</button>`).join('')}</div>` : ''}${relationCards(data.relations.filter(row => item.relations?.includes(row.id)), '本环节的数据传递')}<div class="reader-stage-controls">${navButton(-1, '← 上一环节')}<button class="text-link stage-permalink" data-copy-stage="${chainId}" data-stage="${stageId}" aria-label="复制阶段链接">${icon('link')}</button>${navButton(1, '下一环节 →')}</div>`, item.sources);
+    syncDiagramSelection();
+    if (updateHash) updateReadingHash({ view: current.id, chain: chainId, stage: stageId });
+    if (reveal) revealReader();
+  }
+
+  function renderVisualReader(view) {
+    selectedStage = null;
+    const chain = renderSequenceDescription(view);
+    if (chain) selectStage(chain.id, chain.stages[0].id, { updateHash: false });
+    else if (view.tables?.length) renderDataOverview(view);
+    else if (view.modules.length) renderArchitectureOverview(view);
+    else {
+      $('reading-panel').dataset.kind = 'view';
+      $('reading-panel').dataset.subject = view.id;
+      readerMarkup(view.title, '读图提示', `<p class="reader-summary">${esc(view.subtitle)}</p>${view.notes.map(([title, text]) => `<div class="reader-explanation"><h5>${esc(title)}</h5><p>${esc(text)}</p></div>`).join('')}`, view.sources);
+    }
   }
 
   function nav() {
@@ -273,14 +576,19 @@
   function closeNav() {
     $('sidebar').classList.remove('is-open');
     $('nav-backdrop').hidden = true;
+    $('open-nav').setAttribute('aria-expanded', 'false');
   }
 
-  function navigate(id, updateHash = true) {
+  function navigate(id, updateHash = true, { preserveScroll = false } = {}) {
+    clearFlowAnimation();
     const view = data.views.find(item => item.id === id) || data.views[0];
     current = view;
     selectedModule = null;
-    window.scrollTo({ top: 0, behavior: 'instant' });
-    viewport.style.height = '';
+    selectedStage = null;
+    selectedTable = null;
+    if (!preserveScroll) visualPane = 'diagram';
+    showVisualPane();
+    if (!preserveScroll) window.scrollTo({ top: 0, behavior: 'instant' });
     if (updateHash && location.hash !== '#' + view.id) history.pushState(null, '', '#' + view.id);
     const overview = view.id === overviewId;
     $('overview-link').hidden = overview;
@@ -294,37 +602,52 @@
     $('search-results').hidden = true;
     $('view-nav').hidden = false;
     document.querySelectorAll('[data-view]').forEach(button => button.setAttribute('aria-current', button.dataset.view === view.id ? 'page' : 'false'));
-    $('view-group').textContent = overview ? '项目全貌' : view.group;
+    $('view-group').textContent = overview ? '项目架构' : view.group;
     $('view-title').textContent = view.title;
     $('view-subtitle').textContent = view.freshness === 'stale' ? `${view.subtitle} · 待复核` : view.subtitle;
     $('view-tags').innerHTML = view.tags.map(tag => `<span class="tag">${esc(tag)}</span>`).join('');
     $('show-view-evidence').hidden = !view.sources?.length;
-    const legend = view.legend || (/^\s*(flowchart|graph)\s/.test(view.diagram || '') ? [
+    $('graph-explore').hidden = !view.relationDiagrams && !['overview', 'dependency', 'data_flow', 'data'].includes(view.kind);
+    $('clear-focus').hidden = true;
+    $('focus-caption').textContent = view.tables?.length ? '点击数据对象，查看字段与关联' : '点击模块，查看职责与数据流向';
+    const legend = view.relationDiagrams ? [{ label: '数据流向：提供方 → 接收方', color: '#238577' }] : view.legend || (/^\s*(flowchart|graph)\s/.test(view.diagram || '') ? [
       { label: '入口', color: '#a8bfe4' }, { label: '业务', color: '#8ebba6' },
-      { label: '处理 / 流程', color: '#ddbc7c' }, { label: '外部依赖', color: '#d4a498' }
+      { label: '处理 / 流程', color: '#ddbc7c' }, { label: '外部系统', color: '#d4a498' }
     ] : []);
     $('view-legend').innerHTML = legend.map(item => `<span><b class="swatch" style="background:${/^#[a-fA-F0-9]{6}$/.test(item.color) ? item.color : '#89958c'}"></b>${esc(item.label)}</span>`).join('');
     $('view-notes').innerHTML = view.notes.map(([title, text]) => `<article class="fact-item"><h3>${esc(title)}</h3><p>${esc(text)}</p></article>`).join('');
     $('view-notes').hidden = !view.notes.length;
+    (view.id === 'catalog' ? $('catalog-section') : $('visual-layout')).appendChild($('view-notes'));
     $('module-detail').hidden = true;
-    $('module-section').hidden = view.id === 'catalog';
+    $('module-section').hidden = view.id === 'catalog' || !view.modules.length;
     $('module-list').innerHTML = view.modules.map(id => {
       const module = byId(id);
-      return `<button class="module-row" data-module="${id}" aria-expanded="false">${icon(module.icon)}<span class="module-row-copy"><strong>${esc(module.name)}</strong><small>${esc(module.summary)}</small></span>${icon('chevron-right')}</button>`;
+      const downstream = [...new Set(dataFlows.filter(row => row.from === id).map(row => row.to))].map(id => byId(id));
+      return `<tr><td><button class="module-row" data-focus-architecture="${id}">${icon(module.icon)}<span><strong>${esc(module.name)}</strong><small>${esc(module.category)}</small></span></button></td><td>${esc(module.summary)}</td><td>${downstream.length ? downstream.map(item => `<button class="text-link" data-focus-architecture="${item.id}">${esc(item.name)}</button>`).join('<br>') : '<span class="table-empty">尚未记录</span>'}</td><td>${sourceReferences(module.sources.slice(0, 1))}</td></tr>`;
     }).join('');
     $('module-count').textContent = `${view.modules.length} 项`;
+    const responsibilityLabels = [...$('module-section').querySelectorAll('th')].map(cell => cell.textContent);
+    $('module-list').querySelectorAll('tr').forEach(row => {
+      [...row.cells].forEach((cell, index) => { cell.dataset.label = responsibilityLabels[index]; });
+    });
     $('alias-section').hidden = !view.aliases;
     $('alias-list').innerHTML = Object.entries(view.aliases || {}).map(([name, table]) => `<div class="alias-row"><strong>${esc(name)}</strong><code>${esc(table)}</code></div>`).join('');
-    const sequenceView = isSequenceView(view);
-    const graphReading = {
-      data: ['数据之间有什么联系', '结合连线与说明，了解哪些业务信息彼此关联。'],
-      state: ['状态会怎样变化', '从当前状态出发，了解哪些动作会带来变化。'],
-      recovery: ['遇到异常后如何恢复', '沿着分支了解失败后的处理、重试与恢复过程。']
-    }[view.kind] || ['这些部分如何协作', '沿着连线了解彼此的关系，点击节点可查看职责与依据。'];
+    const flowReading = ['模块之间的数据流向', '沿箭头查看数据从哪里来、传给谁；点击模块了解职责与输入输出。'];
+    const graphReading = view.relationDiagrams ? flowReading : {
+      data: ['数据结构与对象关联', '点击数据对象，查看字段含义、关联键及读写它的模块。'],
+      data_flow: flowReading,
+      dependency: ['模块协作与职责边界', '按图中标注了解模块的协作方式，点击模块查看职责说明。'],
+      state: ['业务状态与变化条件', '查看当前状态、触发动作及变化后的结果。'],
+      recovery: ['遇到异常后如何恢复', '沿着分支了解失败后的处理、重试与恢复过程。'],
+      sequence: ['参与方之间的处理顺序', '沿时间方向查看请求与返回；点击阶段了解参与方、处理条件和结果。'],
+      flow: ['业务处理流程', '从触发条件走到处理结果；沿分支查看继续、中止与失败的条件。'],
+      narrative: ['业务流程导览', '选择一个环节，查看它的业务含义、参与模块与数据传递。']
+    }[view.kind] || ['项目组成与模块职责', '先看模块分工与边界，再进入业务流程和数据流向。'];
     $('graph-reading-title').textContent = graphReading[0];
     $('graph-reading-lead').textContent = graphReading[1];
-    $('graph-section').hidden = !view.diagram || sequenceView;
-    $('sequence-section').hidden = !sequenceView;
+    $('visual-section').hidden = view.id === 'catalog';
+    $('visual-section').classList.toggle('is-overview', view.kind === 'overview' || view.id === 'overview');
+    $('graph-section').hidden = !view.diagram;
     $('catalog-section').hidden = view.id !== 'catalog';
     if (view.id === 'catalog') {
       renderSerial++;
@@ -340,25 +663,28 @@
       icons();
       return Promise.resolve();
     }
-    if (sequenceView) {
+    renderVisualReader(view);
+    if (!view.diagram) {
       renderSerial++;
       viewport.dataset.renderState = 'ready';
       $('graph-status').hidden = true;
       stage.replaceChildren();
       camera = { x: 0, y: 0, scale: 1 };
-      renderSequenceDescription(view);
       icons();
       return Promise.resolve();
     }
-    $('diagram-kind').textContent = view.diagram.trimStart().startsWith('erDiagram') ? '数据对象关系 / 约束以说明为准' : view.diagram.trimStart().startsWith('stateDiagram') ? '状态与动作' : view.diagram.trimStart().startsWith('mindmap') ? '模块职责树' : '调用与数据流 / 以图中边标注为准';
-    const visibleDiagrams = data.views.filter(item => item.diagram && !isSequenceView(item));
+    $('diagram-kind').textContent = view.relationDiagrams || view.kind === 'data_flow' ? '数据流向 / 连线标注传递内容' : view.diagram.trimStart().startsWith('sequenceDiagram') ? '交互时序 / 按消息顺序阅读' : view.diagram.trimStart().startsWith('erDiagram') ? '数据结构 / 字段与对象关联' : view.diagram.trimStart().startsWith('stateDiagram') ? '状态与触发条件' : view.diagram.trimStart().startsWith('mindmap') ? '模块职责树' : '处理流程 / 按连线与分支条件阅读';
+    const visibleDiagrams = data.views.filter(item => item.diagram);
     $('diagram-counter').textContent = `${String(visibleDiagrams.indexOf(view) + 1).padStart(2, '0')} / ${data.stats.diagrams}`;
     $('canvas-stamp').textContent = `关系示意 · ${data.date}`;
     icons();
     const serial = ++renderSerial;
-    const diagram = smallScreen.matches && view.mobileDiagram ? view.mobileDiagram : view.diagram;
+    const variant = view.relationDiagrams?.data_flow;
+    const desktopDiagram = variant?.diagram || view.diagram;
+    const mobileDiagram = variant?.mobileDiagram || view.mobileDiagram;
+    const diagram = smallScreen.matches && mobileDiagram ? mobileDiagram : desktopDiagram;
     renderedDiagram = diagram;
-    const cacheKey = `${view.id}::${diagram === view.mobileDiagram ? 'mobile' : 'desktop'}`;
+    const cacheKey = `${view.id}::${diagram === mobileDiagram ? 'mobile' : 'desktop'}`;
     const renderId = `diagram_${cacheKey.replace(/[^a-zA-Z0-9_-]/g, '_')}_${serial}`;
     $('graph-status').hidden = false;
     $('graph-status').textContent = '正在绘制关系图';
@@ -386,39 +712,51 @@
         diagramSize = { width, height };
         if (!(diagramSize.width > 0 && diagramSize.height > 0)) throw new Error('EMPTY_DIAGRAM');
         renderedDiagram = diagram;
-        const widthScale = Math.min(1, (viewport.clientWidth - 44) / diagramSize.width);
-        if (!smallScreen.matches && diagramSize.height / diagramSize.width > 0.8) {
-          viewport.style.height = Math.min(1440, Math.max(viewport.clientHeight, diagramSize.height * widthScale + 44)) + 'px';
-        } else if (smallScreen.matches && view.mobileDiagram) {
-          viewport.style.height = Math.min(1100, Math.max(430, diagramSize.height * widthScale + 44)) + 'px';
-        } else if (!smallScreen.matches) {
-          const readableHeight = diagramSize.height * Math.min(1.5, (viewport.clientWidth - 44) / diagramSize.width) + 88;
-          if (readableHeight < viewport.clientHeight * 0.65) viewport.style.height = Math.max(260, readableHeight) + 'px';
-        }
         element.style.width = diagramSize.width + 'px';
         element.style.height = diagramSize.height + 'px';
         element.setAttribute('width', diagramSize.width);
         element.setAttribute('height', diagramSize.height);
         element.setAttribute('role', 'img');
         element.setAttribute('aria-label', view.title);
-        element.querySelectorAll('g.node').forEach(node => {
-          const nodeId = node.id.match(/^flowchart-(.+)-\d+$/)?.[1];
-          if (nodeId && byId(nodeId)) {
-            node.dataset.module = nodeId;
+        element.querySelectorAll('g.node, g[id^="entity-"]').forEach(node => {
+          const nodeId = node.id.match(/^flowchart-(.+)-\d+$/)?.[1] || node.querySelector('.entityLabel')?.textContent.trim();
+          const moduleId = view.relationDiagrams && nodeId?.startsWith('atlas_') ? nodeId.slice(6) : nodeId;
+          const tableName = Object.hasOwn(view.aliases || {}, nodeId) ? view.aliases[nodeId] : nodeId;
+          const table = (view.kind === 'data' || view.tables?.includes(tableName)) && byTable(tableName);
+          const binding = view.bindings?.find(binding => binding.node === nodeId);
+          if (nodeId) node.dataset.diagramNode = nodeId;
+          if (table || binding || (moduleId && byId(moduleId))) {
             node.setAttribute('tabindex', '0');
             node.setAttribute('role', 'button');
-            node.setAttribute('aria-label', byId(nodeId).name + '，源码依据');
+            if (table) {
+              node.dataset.object = table.name;
+              node.classList.add('data-object-node');
+              node.setAttribute('aria-label', table.title + '，查看字段与关联');
+            } else if (binding) {
+              node.dataset.graphChain = binding.chain;
+              node.dataset.graphStage = binding.stage;
+              const item = data.chains.find(chain => chain.id === binding.chain)?.stages.find(item => item.id === binding.stage);
+              node.setAttribute('aria-label', (item?.label || nodeId) + '，查看流程说明');
+            } else {
+              node.dataset.module = moduleId;
+              node.setAttribute('aria-label', byId(moduleId).name + '，查看依赖与数据流');
+            }
           }
         });
-        fit();
+        if (element.querySelector('[role="button"]')) element.setAttribute('role', 'group');
+        syncDiagramSelection();
+        fitMode = true;
+        layoutGraph();
         $('graph-status').hidden = true;
         $('export-svg').disabled = false;
         viewport.dataset.renderState = 'ready';
         viewport.dataset.view = view.id;
+        prepareFlowAnimation(element, variant);
       } catch (error) {
         if (serial !== renderSerial) return;
+        clearFlowAnimation();
         stage.replaceChildren();
-        stage.innerHTML = `<div class="diagram-fallback"><strong>关系图暂时无法渲染</strong><p>保留 Mermaid 源码，流程说明和证据索引仍可继续查看。</p><pre>${esc(diagram)}</pre></div>`;
+        stage.innerHTML = `<div class="diagram-fallback"><strong>关系图暂时无法渲染</strong><p>模块关系、流程说明和追溯链接仍可查看。</p><details><summary>查看图形定义以排查问题</summary><pre>${esc(diagram)}</pre></details></div>`;
         $('graph-status').hidden = true;
         viewport.dataset.renderState = 'error';
         console.error('Diagram rendering failed:', view.id, error);
@@ -432,9 +770,29 @@
     $('zoom-input').value = Math.round(camera.scale * 100);
   }
 
+  function layoutGraph() {
+    if (!current?.diagram || !viewport.clientWidth || !stage.querySelector('svg')) return;
+    if (document.fullscreenElement !== $('graph-section')) {
+      const padding = smallScreen.matches ? 24 : 44;
+      const scale = Math.min(diagramSize.height > 420 ? 1 : 1.35, Math.max(.05, (viewport.clientWidth - padding) / diagramSize.width));
+      const maximum = smallScreen.matches ? Math.max(480, Math.min(1100, innerHeight * 1.3)) : Math.max(420, Math.min(1000, innerHeight * 1.25));
+      const height = Math.ceil(Math.max(smallScreen.matches ? 200 : 180, Math.min(maximum, diagramSize.height * scale + padding)));
+      if (viewport.style.getPropertyValue('--diagram-height') !== height + 'px') viewport.style.setProperty('--diagram-height', height + 'px');
+    }
+    if (fitMode) fit();
+  }
+
+  let layoutFrame = null;
+  function scheduleGraphLayout() {
+    if (layoutFrame !== null) return;
+    layoutFrame = requestAnimationFrame(() => { layoutFrame = null; layoutGraph(); });
+  }
+
   function fit() {
+    if (!viewport.clientWidth || !viewport.clientHeight) return;
     fitMode = true;
-    camera.scale = Math.max(0.05, Math.min((viewport.clientWidth - 44) / diagramSize.width, (viewport.clientHeight - 44) / diagramSize.height, 1.5));
+    const padding = smallScreen.matches ? 24 : 44;
+    camera.scale = Math.max(0.05, Math.min((viewport.clientWidth - padding) / diagramSize.width, (viewport.clientHeight - padding) / diagramSize.height, 1.5));
     camera.x = (viewport.clientWidth - diagramSize.width * camera.scale) / 2;
     camera.y = (viewport.clientHeight - diagramSize.height * camera.scale) / 2;
     paint();
@@ -454,10 +812,15 @@
   let previousPinch;
   let dragOrigin;
   let pointerModule = null;
+  let pointerStage = null;
+  let pointerObject = null;
   viewport.addEventListener('pointerdown', event => {
     if (event.button !== 0) return;
     moved = false;
     pointerModule = event.target.closest('[data-module]')?.dataset.module || null;
+    const bound = event.target.closest('[data-graph-chain]');
+    pointerStage = bound ? { chain: bound.dataset.graphChain, stage: bound.dataset.graphStage } : null;
+    pointerObject = event.target.closest('[data-object]')?.dataset.object || null;
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     dragOrigin = { x: event.clientX, y: event.clientY };
     viewport.setPointerCapture(event.pointerId);
@@ -485,11 +848,17 @@
   });
   function finishPointer(event) {
     const clickedModule = event.type === 'pointerup' && pointers.size === 1 && !moved ? pointerModule : null;
+    const clickedStage = event.type === 'pointerup' && pointers.size === 1 && !moved ? pointerStage : null;
+    const clickedObject = event.type === 'pointerup' && pointers.size === 1 && !moved ? pointerObject : null;
     pointers.delete(event.pointerId);
     previousPinch = null;
     if (!pointers.size) viewport.classList.remove('is-dragging');
     pointerModule = null;
-    if (clickedModule) inspectModule(clickedModule, true);
+    pointerStage = null;
+    pointerObject = null;
+    if (clickedObject) inspectDataObject(clickedObject, { reveal: true });
+    else if (clickedStage) selectStage(clickedStage.chain, clickedStage.stage, { reveal: true });
+    else if (clickedModule) inspectModule(clickedModule, false, { readerOnly: true, reveal: true });
   }
   viewport.addEventListener('pointerup', finishPointer);
   viewport.addEventListener('pointercancel', finishPointer);
@@ -500,9 +869,17 @@
     zoom(camera.scale * Math.exp(-event.deltaY * .008), event.clientX - rect.left, event.clientY - rect.top);
   }, { passive: false });
   viewport.addEventListener('keydown', event => {
+    if (event.target.matches('[data-object]') && ['Enter', ' '].includes(event.key)) {
+      event.preventDefault(); inspectDataObject(event.target.dataset.object, { reveal: true }); return;
+    }
+    if (event.target.matches('[data-graph-chain]') && ['Enter', ' '].includes(event.key)) {
+      event.preventDefault();
+      selectStage(event.target.dataset.graphChain, event.target.dataset.graphStage, { reveal: true });
+      return;
+    }
     if (event.target.matches('[data-module]') && ['Enter', ' '].includes(event.key)) {
       event.preventDefault();
-      inspectModule(event.target.dataset.module, true);
+      inspectModule(event.target.dataset.module, false, { readerOnly: true, reveal: true });
       return;
     }
     const offsets = { ArrowLeft: [35, 0], ArrowRight: [-35, 0], ArrowUp: [0, 35], ArrowDown: [0, -35] };
@@ -520,15 +897,17 @@
   function modulePassportMarkup(module, focusReach) {
     const upstream = authoredNeighbors(module.id, 'upstream');
     const downstream = authoredNeighbors(module.id, 'downstream');
+    const upstreamTitle = dataFlows.length ? '数据从哪里来' : '已记录的上游模块';
+    const downstreamTitle = dataFlows.length ? '数据传给谁' : '已记录的下游模块';
     const list = (items, direction) => items.length
       ? `<div class="passport-links">${items.map(item => `<button class="passport-link" data-focus-module="${item.id}" data-focus-reach="${direction}">${icon(direction === 'upstream' ? 'arrow-up-left' : 'arrow-down-right')}<span>${esc(item.name)}</span></button>`).join('')}</div>`
-      : `<p class="passport-empty">${direction === 'upstream' ? '尚未记录前面的协作环节' : '尚未记录后续协作环节'}</p>`;
-    const routePairs = upstream.flatMap(source => downstream.map(target => [source, target])).slice(0, 8);
+      : '<p class="passport-empty">尚未记录</p>';
+    const routePairs = upstream.flatMap(source => downstream.filter(target => target.id !== source.id).map(target => [source, target])).slice(0, 8);
     return `<section class="module-passport" aria-label="${esc(module.name)} 的协作关系">
-      <div class="passport-heading"><div><div class="detail-heading">与哪些部分协作</div><p>这里展示本报告已梳理的协作关系。实际运行顺序仍需结合具体业务流程确认。</p></div><button class="text-link module-copy-link" data-copy-focus="${module.id}" data-focus-reach="${esc(focusReach || '')}">${icon('link')}分享这个环节</button></div>
-      <div class="passport-stats"><span><strong>${upstream.length}</strong> 前面的协作环节</span><span><strong>${downstream.length}</strong> 后续协作环节</span><span><strong>${upstream.length + downstream.length}</strong> 直接关系</span></div>
-      <div class="passport-columns"><div><h4>前面的协作环节</h4>${list(upstream, 'upstream')}</div><div><h4>后续协作环节</h4>${list(downstream, 'downstream')}</div></div>
-      ${routePairs.length ? `<div class="passport-routes"><h4>从前到后串起来看</h4><div class="passport-links">${routePairs.map(([source, target]) => `<button class="passport-link passport-route-link" data-authored-route="${esc(source.id + '~' + target.id)}">${icon('route')}<span>${esc(source.name)} → ${esc(target.name)}</span></button>`).join('')}</div></div>` : ''}
+      <div class="passport-heading"><div><div class="detail-heading">${dataFlows.length ? '数据来源与去向' : '已记录的模块协作'}</div><p>${dataFlows.length ? '沿已记录的数据流查看相邻模块，具体处理顺序见业务流程。' : '协作关系尚未补充数据内容，可先查看相邻模块的职责。'}</p></div><button class="text-link module-copy-link" data-copy-focus="${module.id}" data-focus-reach="${esc(focusReach || '')}">${icon('link')}分享当前模块</button></div>
+      <div class="passport-stats"><span><strong>${upstream.length}</strong> ${upstreamTitle}</span><span><strong>${downstream.length}</strong> ${downstreamTitle}</span></div>
+      <div class="passport-columns"><div><h4>${upstreamTitle}</h4>${list(upstream, 'upstream')}</div><div><h4>${downstreamTitle}</h4>${list(downstream, 'downstream')}</div></div>
+      ${routePairs.length ? `<div class="passport-routes"><h4>${dataFlows.length ? '沿数据流继续查看' : '继续查看协作路径'}</h4><div class="passport-links">${routePairs.map(([source, target]) => `<button class="passport-link passport-route-link" data-authored-route="${esc(source.id + '~' + target.id)}">${icon('route')}<span>${esc(source.name)} → ${esc(target.name)}</span></button>`).join('')}</div></div>` : ''}
     </section>`;
   }
 
@@ -634,24 +1013,28 @@
     const stage = route.stage ? chain?.stages.find(row => row.id === route.stage) : null;
     const target = route.evidence ? evidenceTargets.get(route.evidence) : null;
     const focus = route.focus ? byId(route.focus) : null;
+    const table = route.table ? byTable(route.table) : null;
     const focusReach = ['upstream', 'downstream'].includes(route.reach) ? route.reach : null;
     const routePairValue = route.route;
     const authoredPair = routePairValue ? routePair(routePairValue) : null;
     const authoredPath = authoredPair ? authoredRoute(authoredPair[0], authoredPair[1]) : null;
-    navigate(route.view || chain?.readingView || target?.view || overviewId, false);
-    if ((route.chain && !chain) || (route.stage && !stage) || (route.evidence && !target) || (route.focus && !focus) || (route.reach && !focusReach) || (route.route && (!authoredPair || !authoredPath)) || (target && route.chain && target.chain !== route.chain) || (target && route.stage && target.stage !== route.stage) || (route.view && !data.views.some(view => view.id === route.view))) {
+    navigate(route.view || chain?.readingView || target?.view || overviewId, false, { mode: route.mode });
+    if ((route.table && !table) || (route.mode && !(current.relationDiagrams && ['dependency', 'all', 'data_flow'].includes(route.mode))) || (route.chain && !chain) || (route.stage && !stage) || (route.evidence && !target) || (route.focus && !focus) || (route.reach && !focusReach) || (route.route && (!authoredPair || !authoredPath)) || (target && route.chain && target.chain !== route.chain) || (target && route.stage && target.stage !== route.stage) || (route.view && !data.views.some(view => view.id === route.view))) {
       showToast('定位目标不存在，已显示可用视图。'); return;
     }
     if (stage) {
+      selectStage(chain.id, stage.id, { updateHash: false });
+      if (compactLayout.matches) showVisualPane('reader');
       const element = [...document.querySelectorAll('[data-stage-anchor]')].find(element => element.dataset.stageAnchor === chain.id + '/' + stage.id);
       if (element) { element.classList.add('is-target'); element.tabIndex = -1; element.scrollIntoView({ block: 'center' }); element.focus({ preventScroll: true }); }
     }
     if (chain && !stage) showChain(chain.id);
     if (target) {
       if (chain && !dialog.open) showChain(chain.id);
-      showEvidence(target.source);
+      showEvidence(target.source, target.title);
     }
-    if (focus) inspectModule(focus.id, current.id === 'catalog', { focusReach, updateHash: false });
+    if (focus) inspectModule(focus.id, current.id === 'catalog', { focusReach, updateHash: false, readerOnly: true });
+    if (table) { inspectDataObject(table.name, { updateHash: false }); if (compactLayout.matches) showVisualPane('reader'); }
     if (authoredPair) showAuthoredRoute(routePairValue, false);
   }
 
@@ -691,12 +1074,19 @@
   function inspectModule(id, modal = false, options = {}) {
     const module = byId(id);
     if (!module) return;
-    selectedModule = id;
-    stage.querySelectorAll('[data-module]').forEach(node => node.classList.toggle('is-selected', node.dataset.module === id));
     const route = { view: current?.id || overviewId, focus: module.id, reach: options.focusReach };
-    if (options.updateHash !== false) updateReadingHash(route);
     if (modal || current.id === 'catalog' || dialog.open) {
       showDialog(module.name, moduleMarkup(module, options), null, route);
+      return;
+    }
+    selectedModule = id;
+    selectedStage = null;
+    selectedTable = null;
+    syncDiagramSelection();
+    if (current.id !== 'catalog') renderModuleReader(module);
+    if (options.updateHash !== false) updateReadingHash(route);
+    if (options.readerOnly && current.id !== 'catalog' && !dialog.open) {
+      if (options.reveal) revealReader();
     } else {
       $('module-detail').innerHTML = moduleMarkup(module, options);
       $('module-detail').hidden = false;
@@ -707,6 +1097,20 @@
   }
 
   document.addEventListener('click', event => {
+    const reference = event.target.closest('[data-evidence-key]');
+    if (reference && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) {
+      event.preventDefault(); const target = evidenceTargets.get(reference.dataset.evidenceKey); if (target) showEvidence(target.source, target.title); return;
+    }
+    const architectureModule = event.target.closest('[data-focus-architecture]');
+    if (architectureModule) { focusArchitectureModule(architectureModule.dataset.focusArchitecture); return; }
+    const object = event.target.closest('[data-focus-table]');
+    if (object) { focusDataObject(object.dataset.focusTable); return; }
+    const pane = event.target.closest('[data-visual-pane]');
+    if (pane) { showVisualPane(pane.dataset.visualPane, true); return; }
+    const step = event.target.closest('[data-select-stage]');
+    if (step) { selectStage(step.dataset.selectStage, step.dataset.stage, { reveal: true }); return; }
+    const readerModule = event.target.closest('[data-reader-module]');
+    if (readerModule) { inspectModule(readerModule.dataset.readerModule, false, { readerOnly: true, reveal: true }); return; }
     const copyFocus = event.target.closest('[data-copy-focus]');
     if (copyFocus) {
       copyLink({ view: current?.id || overviewId, focus: copyFocus.dataset.copyFocus, reach: copyFocus.dataset.focusReach || undefined });
@@ -729,6 +1133,21 @@
     if (directSource) showEvidence(dialog._directSources[Number(directSource.dataset.directSource)]);
   });
 
+  document.addEventListener('change', event => {
+    if (event.target.id === 'reader-chain') {
+      const chain = viewChains(current).find(chain => chain.id === event.target.value);
+      if (chain) selectStage(chain.id, chain.stages[0].id);
+    }
+  });
+
+  $('visual-tabs').addEventListener('keydown', event => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const pane = event.key === 'Home' ? 'diagram' : event.key === 'End' ? 'reader' : visualPane === 'diagram' ? 'reader' : 'diagram';
+    showVisualPane(pane, true);
+    $(pane === 'diagram' ? 'diagram-tab' : 'reader-tab').focus({ preventScroll: true });
+  });
+
   function download(name, content, type) {
     const blob = new Blob([content], { type });
     const url = URL.createObjectURL(blob);
@@ -746,8 +1165,11 @@
     svg.setAttribute('width', Math.ceil(diagramSize.width));
     svg.setAttribute('height', Math.ceil(diagramSize.height));
     svg.style.width = ''; svg.style.height = ''; svg.style.backgroundColor = '#fff';
+    svg.querySelectorAll('.flow-particles').forEach(layer => layer.remove());
     svg.querySelectorAll('[tabindex]').forEach(node => node.removeAttribute('tabindex'));
-    svg.querySelectorAll('.is-selected').forEach(node => node.classList.remove('is-selected'));
+    for (const name of ['is-selected', 'is-related', 'is-muted', 'is-focused-edge', 'is-muted-edge', 'is-muted-label']) {
+      svg.querySelectorAll('.' + name).forEach(node => node.classList.remove(name));
+    }
     download(`${current.title}.svg`, '<?xml version="1.0" encoding="UTF-8"?>\n' + new XMLSerializer().serializeToString(svg), 'image/svg+xml;charset=utf-8');
     showToast('SVG 已导出');
   }
@@ -931,11 +1353,24 @@
     } catch { showToast('当前浏览器未允许全屏'); }
   });
   $('export-svg').addEventListener('click', exportSvg);
+  $('toggle-flow').addEventListener('click', () => {
+    flowPreference = !(flowPreference ?? !reducedMotion.matches);
+    syncFlowPlayback();
+  });
   $('show-source').addEventListener('click', showMermaidSource);
   $('show-view-evidence').addEventListener('click', () => showSourceCollection('本视图源码依据', current.subtitle, current.sources || []));
   $('about-button').addEventListener('click', showAbout);
   $('update-button').addEventListener('click', showUpdate);
-  $('copy-view-link').addEventListener('click', () => copyLink({ view: current.id }));
+  $('copy-view-link').addEventListener('click', () => {
+    const reach = new URLSearchParams(location.hash.slice(1)).get('reach');
+    copyLink({ view: current.id, focus: selectedModule || undefined, reach: selectedModule && ['upstream', 'downstream'].includes(reach) ? reach : undefined, table: selectedTable || undefined, chain: selectedStage?.chain, stage: selectedStage?.stage });
+  });
+  $('clear-focus').addEventListener('click', () => {
+    selectedModule = null; selectedStage = null; selectedTable = null;
+    if (current.tables?.length) renderDataOverview(current); else renderArchitectureOverview(current);
+    syncDiagramSelection(); fit();
+    updateReadingHash({ view: current.id });
+  });
   $('copy-detail-link').addEventListener('click', () => { if (dialog._route) copyLink(dialog._route); });
   document.addEventListener('click', event => {
     const button = event.target.closest('[data-copy-stage]');
@@ -952,11 +1387,41 @@
     const box = dialog.getBoundingClientRect();
     if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) dialog.close();
   });
-  $('open-nav').addEventListener('click', () => { $('sidebar').classList.add('is-open'); $('nav-backdrop').hidden = false; });
+  $('open-nav').addEventListener('click', () => { $('sidebar').classList.add('is-open'); $('nav-backdrop').hidden = false; $('open-nav').setAttribute('aria-expanded', 'true'); });
   $('close-nav').addEventListener('click', closeNav);
   $('nav-backdrop').addEventListener('click', closeNav);
   window.addEventListener('hashchange', restoreLocation);
-  smallScreen.addEventListener('change', () => { if (current) navigate(current.id, false); });
+  smallScreen.addEventListener('change', () => {
+    if (!current) return;
+    const viewId = current.id, previousStage = selectedStage, previousModule = selectedModule, previousTable = selectedTable;
+    const scrollTop = window.scrollY, readerScroll = $('reading-panel').scrollTop;
+    const rendering = navigate(viewId, false, { preserveScroll: true });
+    const responsiveSerial = renderSerial;
+    if (previousStage) selectStage(previousStage.chain, previousStage.stage, { updateHash: false });
+    else if (previousTable) inspectDataObject(previousTable, { updateHash: false });
+    else if (previousModule && current.id !== 'catalog') {
+      selectedModule = previousModule;
+      renderModuleReader(byId(previousModule));
+    }
+    $('reading-panel').scrollTop = readerScroll;
+    rendering.then(() => { if (current.id === viewId && renderSerial === responsiveSerial) window.scrollTo({ top: scrollTop, behavior: 'instant' }); });
+  });
+  compactLayout.addEventListener('change', () => showVisualPane());
+  reducedMotion.addEventListener('change', () => {
+    if (reducedMotion.matches && flowPreference === true) flowPreference = null;
+    syncFlowPlayback();
+  });
+  printMedia.addEventListener('change', syncFlowPlayback);
+  document.addEventListener('visibilitychange', syncFlowPlayback);
+  window.addEventListener('beforeprint', () => { printing = true; syncFlowPlayback(); });
+  window.addEventListener('afterprint', () => { printing = false; syncFlowPlayback(); });
+  window.addEventListener('pagehide', stopFlowFrame);
+  window.addEventListener('pageshow', syncFlowPlayback);
+  new IntersectionObserver(entries => {
+    flowInView = entries.some(entry => entry.isIntersecting);
+    syncFlowPlayback();
+  }).observe(viewport);
+  collapsedNavigation.addEventListener('change', () => { if (!collapsedNavigation.matches) closeNav(); });
   window.addEventListener('keydown', event => {
     if (event.key === 'Escape') closeNav();
     if (event.key === '/' && !dialog.open && !event.target.matches('input, textarea, select, [contenteditable="true"]')) {
@@ -964,7 +1429,9 @@
       $('module-search').focus();
     }
   });
-  new ResizeObserver(() => { if (fitMode && current?.diagram && viewport.clientWidth > 0) fit(); }).observe(viewport);
+  new ResizeObserver(scheduleGraphLayout).observe(viewport);
+  window.addEventListener('resize', scheduleGraphLayout);
+  document.addEventListener('fullscreenchange', () => { fitMode = true; scheduleGraphLayout(); });
   $('baseline-date').textContent = data.date;
   $('stat-modules').textContent = data.stats.modules;
   $('stat-diagrams').textContent = data.stats.diagrams;
@@ -997,7 +1464,8 @@
   $('project-scope').hidden = false;
   $('reading-boundary').textContent = data.project.boundary;
   $('project-title').textContent = data.project.title;
-  $('project-subtitle').textContent = data.project.subtitle === 'REPOSITORY ATLAS' ? '业务与系统说明' : data.project.subtitle;
+  $('project-title').title = data.project.title;
+    $('project-subtitle').textContent = data.project.subtitle === 'REPOSITORY ATLAS' ? '项目架构与业务流程' : data.project.subtitle;
   document.title = data.project.title;
   document.querySelectorAll('[data-catalog]').forEach(button => {
     button.hidden = !catalogKinds.includes(button.dataset.catalog);
@@ -1018,11 +1486,13 @@
     heading.tabIndex = -1; heading.focus({ preventScroll: true });
   };
   $('read-flows').hidden = !data.chains.length;
-  $('read-findings').hidden = !data.findings.length;
-  $('read-evidence').hidden = !catalogKinds.length;
+  const dataFlowView = data.views.find(view => view.kind === 'data_flow') || data.views.find(view => view.relationDiagrams?.data_flow?.relations.length);
+  const structureView = data.views.find(view => view.kind === 'data');
+  $('read-dataflow').hidden = !dataFlowView;
+  $('read-structures').hidden = !structureView;
   $('read-flows').addEventListener('click', () => jumpToReadingSection('chain-section'));
-  $('read-findings').addEventListener('click', () => jumpToReadingSection('findings-section'));
-  $('read-evidence').addEventListener('click', () => openCatalog(catalogKinds[0]));
+  $('read-dataflow').addEventListener('click', () => current.id === dataFlowView.id ? jumpToReadingSection('visual-section') : navigate(dataFlowView.id));
+  $('read-structures').addEventListener('click', () => navigate(structureView.id));
   $('open-findings').addEventListener('click', () => openCatalog('findings'));
   $('all-findings').addEventListener('click', () => openCatalog('findings'));
   $('open-coverage').addEventListener('click', () => openCatalog('coverage'));

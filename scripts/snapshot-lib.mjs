@@ -10,7 +10,7 @@ export { parseOptions } from './cli-lib.mjs';
 
 export const slash = value => value.split(sep).join('/');
 const runtimeFields = new Set(['freshness', 'reviewRequired', 'staleReason']);
-const runtimeCollections = ['modules', 'views', 'chains', 'tables', 'routes', 'flags', 'findings', 'coverage'];
+const runtimeCollections = ['modules', 'relations', 'views', 'chains', 'tables', 'routes', 'flags', 'findings', 'coverage'];
 export function analysisManifestHash(manifest) {
   const normalized = structuredClone(manifest);
   delete normalized.update;
@@ -68,6 +68,7 @@ function sourceRows(manifest) {
     rows.push({ ...source, key: `${keyKind}:${id}:${source.id ?? index}`, entityType: kind, entityId: id, index });
   });
   (manifest.modules || []).forEach(row => add('module', row.id, row.sources));
+  (manifest.relations || []).forEach(row => add('relation', row.id, row.sources));
   (manifest.views || []).forEach(row => add('view', row.id, row.sources));
   (manifest.chains || []).forEach(row => {
     add('chain', row.id, row.sources);
@@ -91,10 +92,12 @@ export function buildSummaryIndex(manifest) {
       title: row.title || row.name || row.label || row.area || row.prefix || id,
       summary: row.summary || row.description || '',
       status: row.status || null,
-      modules: row.modules || []
+      modules: type === 'relation' ? [row.from, row.to] : row.modules || [],
+      ...(type === 'relation' ? { from: row.from, to: row.to, kind: row.kind, payload: row.payload || [] } : {})
     };
   };
   for (const row of manifest.modules || []) add('module', row.id, row);
+  for (const row of manifest.relations || []) add('relation', row.id, row);
   for (const row of manifest.views || []) add('view', row.id, row);
   for (const row of manifest.chains || []) {
     add('chain', row.id, row);
@@ -225,6 +228,10 @@ export async function buildEvidenceInventory({ manifest, workspace, files, allow
       staleReason: result.reason
     };
     (impactIndex[path] ||= []).push(`${source.entityType}:${source.entityId}`);
+    if (['relation', 'table'].includes(source.entityType)) {
+      const field = source.entityType === 'relation' ? 'relations' : 'tables';
+      for (const view of manifest.views || []) if (view[field]?.includes(source.entityId)) impactIndex[path].push(`view:${view.id}`);
+    }
     if (source.entityType === 'chain-stage') impactIndex[path].push(`chain:${source.entityId.split('/')[0]}`);
   }
   // Optional ownership includes files that have no directly cited excerpt.

@@ -18,6 +18,7 @@
       }
     },
     "modules": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/module" } },
+    "relations": { "type": "array", "items": { "$ref": "#/$defs/relation" } },
     "views": { "type": "array", "items": { "$ref": "#/$defs/view" } },
     "chains": { "type": "array", "items": { "$ref": "#/$defs/chain" } },
     "findings": { "type": "array", "items": { "$ref": "#/$defs/finding" } },
@@ -75,18 +76,38 @@
       "properties": {
         "id": { "$ref": "#/$defs/id", "not": { "const": "catalog" } }, "title": { "$ref": "#/$defs/text" },
         "subtitle": { "type": "string" }, "group": { "type": "string" }, "icon": { "$ref": "#/$defs/text" },
-        "kind": { "enum": ["overview", "flow", "narrative", "sequence", "state", "data", "deployment", "recovery", "dependency", "mindmap", "custom"] },
+        "kind": { "enum": ["overview", "flow", "narrative", "sequence", "state", "data", "data_flow", "deployment", "recovery", "dependency", "mindmap", "custom"] },
+        "relations": { "$ref": "#/$defs/ids", "description": "显式关系 ID；省略 diagram 时只绘制 data_flow 数据流，不生成依赖或全部关系视图。" },
+        "tables": { "$ref": "#/$defs/texts", "description": "本视图中的数据对象名称；ER 节点别名通过 aliases 对应实际名称。" },
         "diagram": { "$ref": "#/$defs/text" }, "mobileDiagram": { "$ref": "#/$defs/text" },
+        "bindings": { "type": "array", "items": { "$ref": "#/$defs/diagramBinding" }, "description": "将流程图节点绑定到已取证的业务阶段；节点 ID 在桌面和移动图中保持一致。" },
         "modules": { "$ref": "#/$defs/ids" }, "tags": { "$ref": "#/$defs/texts" }, "sources": { "$ref": "#/$defs/sources" },
         "notes": { "type": "array", "items": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "string" } } },
         "aliases": { "type": "object", "propertyNames": { "$ref": "#/$defs/text" }, "additionalProperties": { "$ref": "#/$defs/text" } },
         "useDefaultClasses": { "type": "boolean", "default": true },
         "legend": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["label", "color"], "properties": { "label": { "type": "string" }, "color": { "type": "string", "pattern": "^#[a-fA-F0-9]{6}$" } } } }
       },
-      "if": { "required": ["kind"], "properties": { "kind": { "const": "narrative" } } },
+      "if": { "anyOf": [{ "required": ["kind"], "properties": { "kind": { "const": "narrative" } } }, { "required": ["relations"], "properties": { "relations": { "minItems": 1 } } }] },
       "else": { "required": ["diagram"] }
     },
+    "relation": {
+      "type": "object", "unevaluatedProperties": false, "allOf": [{ "$ref": "#/$defs/runtime" }],
+      "required": ["id", "from", "to", "kind", "label", "summary", "sources"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "from": { "$ref": "#/$defs/id" }, "to": { "$ref": "#/$defs/id" },
+        "kind": { "enum": ["dependency", "data_flow"] },
+        "label": { "$ref": "#/$defs/text" }, "summary": { "$ref": "#/$defs/text" },
+        "payload": { "$ref": "#/$defs/texts" }, "sources": { "$ref": "#/$defs/sources", "minItems": 1 }
+      }
+    },
     "status": { "enum": ["covered", "partial", "unknown", "not_applicable"] },
+    "diagramBinding": {
+      "type": "object", "additionalProperties": false, "required": ["node", "chain", "stage"],
+      "properties": {
+        "node": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$" },
+        "chain": { "$ref": "#/$defs/id" }, "stage": { "$ref": "#/$defs/id" }
+      }
+    },
     "coverageRules": {
       "allOf": [
         { "if": { "required": ["status"], "properties": { "status": { "enum": ["covered", "partial"] } } }, "then": { "required": ["sources"], "properties": { "sources": { "minItems": 1 } } } },
@@ -98,6 +119,8 @@
       "required": ["id", "label", "status", "summary"],
       "properties": {
         "id": { "$ref": "#/$defs/id" }, "label": { "$ref": "#/$defs/text" }, "summary": { "$ref": "#/$defs/text" },
+        "codeExplanation": { "$ref": "#/$defs/text", "description": "可选的 AI 分析注释，解释代码依据；不默认显示在人的图谱阅读界面。" },
+        "relations": { "$ref": "#/$defs/ids", "description": "本阶段实际涉及的显式关系；未配置时不推断阶段数据流。" },
         "kind": { "$ref": "#/$defs/text", "examples": ["entry", "authorization", "validation", "orchestration", "read", "write", "side_effect", "publication", "consume", "outcome", "recovery", "custom"], "description": "推荐使用标准阶段类型；保留自定义字符串兼容既有清单。" },
         "status": { "$ref": "#/$defs/status" }, "nextCheck": { "type": "string" },
         "modules": { "$ref": "#/$defs/ids" }, "sources": { "$ref": "#/$defs/sources" }
@@ -140,7 +163,20 @@
       "required": ["name", "title", "kind", "description", "sources"],
       "properties": {
         "name": { "$ref": "#/$defs/text" }, "title": { "$ref": "#/$defs/text" }, "kind": { "$ref": "#/$defs/text" },
-        "description": { "$ref": "#/$defs/text" }, "sources": { "$ref": "#/$defs/sources", "minItems": 1 }
+        "description": { "$ref": "#/$defs/text" }, "sources": { "$ref": "#/$defs/sources", "minItems": 1 },
+        "modules": { "$ref": "#/$defs/ids" },
+        "fields": { "type": "array", "items": { "$ref": "#/$defs/dataField" } }
+      }
+    },
+    "dataField": {
+      "type": "object", "additionalProperties": false, "required": ["name", "type", "description"],
+      "properties": {
+        "name": { "$ref": "#/$defs/text" }, "type": { "$ref": "#/$defs/text" }, "description": { "$ref": "#/$defs/text" },
+        "key": { "enum": ["PK", "FK", "UK", "KEY"] },
+        "references": {
+          "type": "object", "additionalProperties": false, "required": ["table", "field", "kind"],
+          "properties": { "table": { "$ref": "#/$defs/text" }, "field": { "$ref": "#/$defs/text" }, "kind": { "enum": ["logical", "foreign_key"] } }
+        }
       }
     },
     "route": {

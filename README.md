@@ -1,15 +1,15 @@
 # repo-atlas
 
-**源码有据、变更可复核的离线架构图谱。**
+**用项目架构、业务流程、数据流向与数据结构理解一个项目。**
 
 [![CI](https://github.com/Lxiny-zy/repo-atlas/actions/workflows/ci.yml/badge.svg)](https://github.com/Lxiny-zy/repo-atlas/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 [English](docs/README.en.md) · [命令参考](docs/cli.md) · [清单格式](docs/manifest-format.md) · [参与贡献](.github/CONTRIBUTING.md)
 
-![订单业务报告预览：先解释全貌，再按场景阅读](examples/order-journey/desktop.png)
+![订单架构报告预览：点击模块了解职责、数据流向和数据对象](examples/order-journey/desktop.png)
 
-repo-atlas 把人工或 AI 辅助编写的 `atlas.json` 转换成可离线打开的单文件 HTML。模块关系、业务链路、数据对象和发现项可以直接回到源码摘录；代码变化后，通过快照、增量差异和显式复核维护结论。
+repo-atlas 把人工或 AI 辅助编写的 `atlas.json` 转换成可离线探索的单文件 HTML。人通过架构图、数据流图、流程图和 ER 图理解项目，点击模块或数据对象继续探索关系。源码以辅助链接和结构化依据保留，供 AI 核对及增量维护。
 
 适合接手陌生代码库、追踪一个功能的完整链路、交付可持续更新的架构说明。**它不会自动理解业务，也不把静态关系当成运行时调用证明。**
 
@@ -24,7 +24,9 @@ node scripts/validate.mjs examples/order-journey/atlas.json
 node scripts/build.mjs examples/order-journey/atlas.json
 ```
 
-直接打开 `examples/order-journey/report.html`，体验“提交购买”和“取消订单”两个中文场景。先读业务过程和结论，需要核对实现时再展开源码。示例使用仓库内的合成源码，明确保留支付、物流和长期存储尚未覆盖的边界。再次构建同一输出需追加 `--replace`。
+直接打开 `examples/order-journey/report.html`：先看模块职责与数据流向，再按下单、取消两个场景理解处理顺序和分支，最后查看状态与数据结构。模块之间只展示数据流向，点击模块可查看流入、流出及传递内容。正文默认不展示代码块，源码通过链接追溯。示例使用合成源码，数据结构明确标注为内存对象。再次构建同一输出需追加 `--replace`。
+
+数据流图上的标记沿箭头移动，可播放或暂停；点击模块只保留关联的数据流动画。动画演示清单中声明的方向，不表示实时运行、传输速度或执行先后。系统开启“减少动态效果”时默认静止，SVG 导出与打印保留静态箭头。
 
 编写自己的报告前，可参考[读者体验与表达约束](docs/analysis-guide.md#面向读者的表达)：用业务名称组织标题与阶段，函数、路径和字段保留在定位细节中。
 
@@ -40,9 +42,11 @@ node scripts/build.mjs tests/fixtures/multi-chain/atlas.json
 
 | 需求 | 实现 |
 |---|---|
-| 解释模块关系 | 总览、模块详情、已编写的上下游关系与可定位链接 |
-| 讲清业务链路 | 触发、分阶段处理、证据、结果、失败恢复与待确认项 |
-| 查验依据 | 源码锚点、行号摘录、证据搜索、歧义与失效提示 |
+| 理解项目架构 | 查看模块分工与边界，点击模块突出关联的数据流 |
+| 追踪数据流 | 动态标记展示提供方 → 接收方，支持暂停、模块聚焦与载荷说明 |
+| 看清业务流程 | 分支流程图、时序图、状态图与业务阶段联动 |
+| 理解数据结构 | 点击 ER 对象查看字段、键、逻辑关联或数据库外键 |
+| 追溯与 AI 维护 | 源文件超链接、按需摘录、结构化关系与证据索引 |
 | 暴露知识缺口 | confirmed / inferred / unverified，以及独立的覆盖和复核状态 |
 | 维护旧报告 | 文件哈希、Git 基线、受影响实体、未归属变化和增量上下文 |
 | 交付审核版本 | 显式复核单、新版本目录、报告完整性回执与语义版本比较 |

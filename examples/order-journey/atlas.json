@@ -3,8 +3,8 @@
   "workspace": ".",
   "output": "report.html",
   "project": {
-    "title": "一笔订单的来去",
-    "subtitle": "从提交购买到取消返还 · 阅读示例",
+    "title": "订单系统架构与业务流程",
+    "subtitle": "模块分工 · 数据流向 · 下单与取消",
     "summary": "顾客提交购买后，系统先检查信息与库存，再记录订单；取消时，将商品数量还回库存。",
     "scope": "这份报告解释提交订单、库存不足与取消订单三个场景，帮助读者理解各环节的分工和边界。",
     "boundary": "这是使用本地合成代码制作的阅读示例。订单与库存只保存在内存中，不代表真实商城已接入支付、物流或持久化存储。"
@@ -13,41 +13,95 @@
   "modules": [
     {
       "id": "orders", "name": "订单办理", "category": "业务协调", "icon": "shopping-bag",
-      "summary": "决定一笔购买能否成立，并协调取消后的库存返还。",
+      "summary": "校验购买信息，协调库存预留、订单记录与取消处理。",
       "facts": ["购买信息不完整或数量无效时，立即说明原因。", "库存不足时，不生成订单记录。", "同一订单号再次提交会返回原记录；这里没有核对两次购买内容是否一致。"],
-      "links": ["inventory", "records"],
       "sources": [{ "path": "src/orders.js", "match": "export function submitOrder", "length": 12 }, { "path": "src/orders.js", "match": "export function cancelOrder", "length": 8 }]
     },
     {
       "id": "inventory", "name": "商品库存", "category": "数量管理", "icon": "package",
       "summary": "接单时减少可售数量，取消时把购买数量归还。",
       "facts": ["数量不足时返回失败，不修改可售数量。", "本示例的库存来自本地预设数据，进程结束后不会保留。"],
-      "links": [], "sources": [{ "path": "src/inventory.js", "match": "export function reserveStock", "length": 6 }, { "path": "src/inventory.js", "match": "export function releaseStock", "length": 3 }]
+      "sources": [{ "path": "src/inventory.js", "match": "export function reserveStock", "length": 6 }, { "path": "src/inventory.js", "match": "export function releaseStock", "length": 3 }]
     },
     {
       "id": "records", "name": "订单记录", "category": "结果留存", "icon": "clipboard-list",
       "summary": "按订单号保存购买内容，以及“待处理”或“已取消”的状态。",
       "facts": ["取消后保留原购买内容，只更新订单状态。", "记录仅保存在进程内存中，尚未展示数据库落盘。"],
-      "links": [], "sources": [{ "path": "src/records.js", "match": "const orders = new Map", "length": 10 }]
+      "sources": [{ "path": "src/records.js", "match": "const orders = new Map", "length": 10 }]
     }
+  ],
+  "relations": [
+    { "id": "stock_input", "from": "orders", "to": "inventory", "kind": "data_flow", "label": "商品与数量", "summary": "提交购买时传入要预留的商品和数量；取消时传入原订单的商品和数量，用于返还。", "payload": ["商品编号", "购买数量"], "sources": [{ "path": "src/orders.js", "match": "  if (!reserveStock", "length": 3 }, { "path": "src/orders.js", "match": "  releaseStock(order.productId", "length": 1 }] },
+    { "id": "stock_result", "from": "inventory", "to": "orders", "kind": "data_flow", "label": "预留结果", "summary": "库存预留返回成功或失败，订单办理据此继续创建订单或返回缺货结果。", "payload": ["预留成功 / 失败"], "sources": [{ "path": "src/inventory.js", "match": "export function reserveStock", "length": 6 }] },
+    { "id": "record_input", "from": "orders", "to": "records", "kind": "data_flow", "label": "查询条件 / 保存内容", "summary": "查询时传入订单号；保存时传入购买内容和订单状态。取消会保留原内容，只更新状态。", "payload": ["订单号", "商品与数量", "订单状态"], "sources": [{ "path": "src/orders.js", "match": "  const existing = findOrder", "length": 7 }, { "path": "src/orders.js", "match": "  const cancelled = saveOrder", "length": 2 }] },
+    { "id": "record_result", "from": "records", "to": "orders", "kind": "data_flow", "label": "订单记录", "summary": "查询返回原订单或无记录；保存返回写入后的订单，供订单办理返回给调用方。", "payload": ["原订单 / 无记录", "保存后的订单"], "sources": [{ "path": "src/records.js", "match": "export function findOrder", "length": 3 }, { "path": "src/records.js", "match": "export function saveOrder", "length": 4 }] }
   ],
   "views": [
     {
-      "id": "overview", "kind": "overview", "title": "从购买意图到订单结果", "group": "先看全貌", "icon": "compass",
-      "subtitle": "先选择你关心的场景，再查看处理过程和各部分的协作。",
-      "diagram": "flowchart LR\norders[订单办理] -->|检查并预留商品| inventory[商品库存]\norders -->|保存购买内容与状态| records[订单记录]\nclass orders entry\nclass inventory domain\nclass records data",
+      "id": "overview", "kind": "overview", "title": "项目架构：模块分工与数据流向", "group": "项目架构", "icon": "compass",
+      "subtitle": "订单办理协调处理，商品库存管理数量，订单记录保存结果；连线标明模块间传递的数据。",
+      "relations": ["stock_input", "stock_result", "record_input", "record_result"],
       "modules": ["orders", "inventory", "records"],
-      "notes": [["分工很简单", "订单办理负责协调，库存负责数量，订单记录负责留下结果。"], ["先理解过程，再核对实现", "下面的职责卡片可以展开阅读。文件名与代码摘录放在“查看源码依据”中。"]],
+      "notes": [["如何理解请求与返回", "订单办理发出商品、数量或订单号；库存返回预留结果，订单记录返回查询或保存后的内容。"], ["从架构进入业务流程", "下单先预留库存、再保存订单；取消先返还库存、再更新状态。下面分别展开正常路径、失败分支与重复处理。"]],
       "sources": [{ "path": "src/orders.js", "match": "import { reserveStock", "length": 2 }]
     },
     {
-      "id": "place_order", "kind": "narrative", "title": "提交购买后会发生什么", "group": "按场景阅读", "icon": "shopping-cart",
-      "subtitle": "从填写购买信息开始，逐步看到订单为何成功或被拒绝。", "modules": ["orders", "inventory", "records"]
+      "id": "place_order", "kind": "flow", "title": "下单流程：校验、预留与记录", "group": "业务流程", "icon": "shopping-cart",
+      "subtitle": "沿分支看订单为何成功、被拒绝，或直接返回已有结果。", "modules": ["orders", "inventory", "records"],
+      "diagram": "flowchart TB\nrequest{购买信息有效？} -->|否| invalid[提示信息有误]\nrequest -->|是| existing{订单号已有记录？}\nexisting -->|是| reused[返回原订单]\nexisting -->|否| stock{库存足够？}\nstock -->|否| shortage[提示缺货，不创建订单]\nstock -->|是：预留数量| result[保存待处理订单并返回]\npayment[付款与发货 · 待确认]\nclass request,existing,stock process\nclass result data\nclass invalid,shortage external\nclass reused entry\nclassDef pending fill:#fffaf1,stroke:#bd9348,stroke-dasharray:4 4,color:#805e30\nclass payment pending",
+      "mobileDiagram": "flowchart TB\nrequest{\"信息<br/>有效？\"} -->|否| invalid[\"信息<br/>有误\"]\nrequest -->|是| existing{\"已有<br/>订单？\"}\nexisting -->|是| reused[\"返回<br/>原记录\"]\nexisting -->|否| stock{\"库存<br/>足够？\"}\nstock -->|否| shortage[\"缺货<br/>不接单\"]\nstock -->|是<br/>预留| result[\"保存订单<br/>返回结果\"]\npayment[\"付款与发货<br/>待确认\"]\n%% Invisible link positions the unknown boundary without an execution arrow.\nresult ~~~ payment\nclass request,existing,stock process\nclass result data\nclass invalid,shortage external\nclass reused entry\nclassDef pending fill:#fffaf1,stroke:#bd9348,stroke-dasharray:4 4,color:#805e30\nclass payment pending",
+      "bindings": [
+        { "node": "request", "chain": "purchase", "stage": "request" }, { "node": "invalid", "chain": "purchase", "stage": "request" },
+        { "node": "existing", "chain": "purchase", "stage": "existing" }, { "node": "reused", "chain": "purchase", "stage": "existing" },
+        { "node": "stock", "chain": "purchase", "stage": "stock" }, { "node": "shortage", "chain": "purchase", "stage": "stock" },
+        { "node": "result", "chain": "purchase", "stage": "result" }, { "node": "payment", "chain": "purchase", "stage": "payment" }
+      ],
+      "legend": [{ "label": "判断与处理", "color": "#ddbc7c" }, { "label": "提前返回", "color": "#d4a498" }, { "label": "待确认：虚线独立节点", "color": "#bd9348" }],
+      "notes": [["为什么缺货不会留下订单", "缺货分支直接返回，无法继续到保存订单。点击“库存足够？”可对照调用处和库存实现两段代码。"], ["未知不是流程已经完成", "付款与发货单独放在虚线节点中，未接入已知执行路径；现有代码无法证明它们已发生。"]]
     },
     {
-      "id": "cancel_order", "kind": "narrative", "title": "取消后商品数量去了哪里", "group": "按场景阅读", "icon": "rotate-ccw",
-      "subtitle": "了解库存返还、状态更新，以及再次取消时的处理。", "modules": ["orders", "inventory", "records"]
+      "id": "cancel_order", "kind": "flow", "title": "取消流程：返还库存并更新状态", "group": "业务流程", "icon": "rotate-ccw",
+      "subtitle": "先拦住找不到或已取消的订单，再返还库存并更新状态。", "modules": ["orders", "inventory", "records"],
+      "diagram": "flowchart TB\nlookup{能找到订单？} -->|否| missing[提示订单不存在]\nlookup -->|是| guard{已经取消？}\nguard -->|是| unchanged[返回原结果，不再返还]\nguard -->|否| release[按原购买数量返还库存]\nrelease -->|返还后| result[保存已取消状态并返回]\nclass lookup,guard process\nclass release domain\nclass result data\nclass missing external\nclass unchanged entry",
+      "mobileDiagram": "flowchart TB\nlookup{\"订单<br/>存在？\"} -->|否| missing[\"未找到<br/>订单\"]\nlookup -->|是| guard{\"已经<br/>取消？\"}\nguard -->|是| unchanged[\"返回原结果<br/>不再返还\"]\nguard -->|否| release[\"返还<br/>原购买数量\"]\nrelease -->|然后| result[\"保存<br/>已取消状态\"]\nclass lookup,guard process\nclass release domain\nclass result data\nclass missing external\nclass unchanged entry",
+      "legend": [{ "label": "条件判断", "color": "#c18b30" }, { "label": "库存返还", "color": "#348772" }, { "label": "状态保存", "color": "#8f7cab" }, { "label": "提前返回", "color": "#c57a69" }],
+      "bindings": [
+        { "node": "lookup", "chain": "cancellation", "stage": "lookup" }, { "node": "missing", "chain": "cancellation", "stage": "lookup" },
+        { "node": "guard", "chain": "cancellation", "stage": "guard" }, { "node": "unchanged", "chain": "cancellation", "stage": "guard" },
+        { "node": "release", "chain": "cancellation", "stage": "release" }, { "node": "result", "chain": "cancellation", "stage": "result" }
+      ],
+      "notes": [["重复取消为什么不重复加库存", "“已经取消？”的判断在返还库存之前，命中后直接返回原结果。"], ["图中没有退款步骤", "这段代码只展示库存返还和订单状态更新；不能把“已取消”等同于“已退款”。"]]
+    },
+    {
+      "id": "order_states", "kind": "state", "title": "订单状态与变化条件", "group": "状态变化", "icon": "git-branch",
+      "subtitle": "只展示代码中真实存在的两个订单状态。", "modules": ["orders", "records"],
+      "diagram": "stateDiagram-v2\nstate \"待处理\" as pending\nstate \"已取消\" as cancelled\n[*] --> pending: 库存预留成功，保存新订单\npending --> cancelled: 返还库存，保存取消状态\ncancelled --> cancelled: 再次取消，直接返回原记录",
+      "notes": [["取消不会删除订单", "保存取消结果时沿用原购买内容，只覆盖状态。"], ["缺货不会产生订单状态", "库存不足时在保存前就返回，因此图中没有一笔对应的“待处理”订单；付款、发货和退款状态也没有代码依据。"]],
+      "sources": [{ "path": "src/orders.js", "match": "  const order = saveOrder", "length": 2 }, { "path": "src/orders.js", "match": "  if (order.status ===", "length": 4 }]
+    },
+    {
+      "id": "data_objects", "kind": "data", "title": "订单与库存的数据结构", "group": "数据结构", "icon": "database",
+      "subtitle": "这是两个内存 Map 的逻辑结构，连线表示商品标识关联，不是数据库外键。",
+      "modules": ["orders", "records", "inventory"], "tables": ["orders", "available"],
+      "aliases": { "order_record": "orders", "stock_balance": "available" },
+      "diagram": "erDiagram\nstock_balance ||..o{ order_record : \"商品标识关联\"\norder_record {\n string id \"Map 键\"\n string productId \"商品标识\"\n int quantity \"购买数量\"\n string status \"待处理或已取消\"\n}\nstock_balance {\n string productId \"Map 键\"\n int availableQuantity \"可售数量\"\n}",
+      "mobileDiagram": "flowchart TB\norder_record[订单记录] -->|商品标识：逻辑关联| stock_balance[商品库存]\nclass order_record,stock_balance data",
+      "notes": [["同一商品可以对应多笔订单", "订单按订单号保存，商品标识用于找到对应库存；这个关联没有数据库约束。"], ["没有展示持久化", "进程结束后 Map 内容不会保留。图中字段来自这两条业务流程写入和读取的数据。"]]
     }
+  ],
+  "tables": [
+    { "name": "orders", "title": "订单记录", "kind": "内存 Map · 非数据库表", "description": "按订单号保存购买内容与状态。取消更新原记录，不删除原购买信息。", "modules": ["records", "orders"],
+      "fields": [
+        { "name": "id", "type": "字符串", "key": "KEY", "description": "订单号，也是 Map 的键。" },
+        { "name": "productId", "type": "商品标识", "description": "指向本次购买的商品。", "references": { "table": "available", "field": "productId", "kind": "logical" } },
+        { "name": "quantity", "type": "整数", "description": "购买数量；取消时据此返还库存。" },
+        { "name": "status", "type": "状态", "description": "已展示待处理和已取消两个值。" }
+      ], "sources": [{ "path": "src/records.js", "match": "const orders = new Map", "length": 10 }, { "path": "src/orders.js", "match": "  const order = saveOrder", "length": 2 }] },
+    { "name": "available", "title": "商品库存", "kind": "内存 Map · 非数据库表", "description": "以商品标识为键，保存可售数量。预留做减法，返还做加法。", "modules": ["inventory"],
+      "fields": [
+        { "name": "productId", "type": "商品标识", "key": "KEY", "description": "Map 的商品键。" },
+        { "name": "availableQuantity", "type": "数量", "description": "Map 中该商品对应的数值；此名称用于说明逻辑结构。" }
+      ], "sources": [{ "path": "src/inventory.js", "match": "const available = new Map", "length": 12 }] }
   ],
   "chains": [
     {
@@ -56,24 +110,24 @@
       "trigger": "顾客提供订单号、商品和购买数量。", "outcome": "收到订单结果，或得到明确的拒绝原因。",
       "modules": ["orders", "inventory", "records"], "views": ["overview", "place_order"],
       "stages": [
-        { "id": "request", "kind": "validation", "label": "先检查购买信息", "status": "covered", "summary": "订单号和商品要齐全，数量必须是正整数。信息不符合要求时直接返回提示，不扣库存。", "modules": ["orders"], "sources": [{ "path": "src/orders.js", "match": "  if (typeof orderId", "length": 3 }] },
-        { "id": "existing", "kind": "read", "label": "看看这笔订单是否已经存在", "status": "covered", "summary": "如果订单号已有记录，返回原来的结果，避免再次预留库存。示例没有进一步核对两次购买内容是否相同。", "modules": ["orders", "records"], "sources": [{ "path": "src/orders.js", "match": "  const existing = findOrder", "length": 2 }] },
-        { "id": "stock", "kind": "write", "label": "有货才预留，没有货就说明原因", "status": "covered", "summary": "库存足够时减少可售数量；不足时保持库存不变，告知顾客本次没有创建订单。", "modules": ["orders", "inventory"], "sources": [{ "path": "src/orders.js", "match": "  if (!reserveStock", "length": 3 }, { "path": "src/inventory.js", "match": "export function reserveStock", "length": 6 }] },
-        { "id": "result", "kind": "outcome", "label": "留下购买内容，返回订单结果", "status": "covered", "summary": "预留成功后，记录商品、数量和“待处理”状态，并把这笔订单返回给调用方。", "modules": ["orders", "records"], "sources": [{ "path": "src/orders.js", "match": "  const order = saveOrder", "length": 2 }] },
-        { "id": "payment", "kind": "side_effect", "label": "付款与发货还不在这条已知流程中", "status": "unknown", "summary": "现有示例到返回订单为止，不能据此认定顾客已经付款或商品已经发出。", "nextCheck": "若要说明后续履约，需要继续核对支付接入、发货处理与订单状态更新。", "modules": ["orders"], "sources": [] }
+        { "id": "request", "kind": "validation", "label": "检查购买信息", "status": "covered", "summary": "订单号和商品要齐全，数量必须是正整数。信息不符合要求时直接返回提示，不扣库存。", "codeExplanation": "首个 if 检查订单号、商品和数量；不满足条件就 return，此时还没有调用库存预留或订单保存。", "modules": ["orders"], "sources": [{ "path": "src/orders.js", "match": "  if (typeof orderId", "length": 3 }] },
+        { "id": "existing", "kind": "read", "label": "查找已有订单", "status": "covered", "summary": "如果订单号已有记录，返回原来的结果，避免再次预留库存。示例没有进一步核对两次购买内容是否相同。", "codeExplanation": "findOrder 只按订单号查找；existing 存在就直接返回，后续 reserveStock 不会执行。这里未比较商品和数量。", "modules": ["orders", "records"], "sources": [{ "path": "src/orders.js", "match": "  const existing = findOrder", "length": 2 }] },
+        { "id": "stock", "kind": "write", "label": "检查并预留库存", "status": "covered", "summary": "库存足够时减少可售数量；不足时保持库存不变，告知顾客本次没有创建订单。", "codeExplanation": "reserveStock 返回 false 时，调用方立即 return；库存实现也先比较 remaining 与 quantity，再执行减法写回。因此缺货分支既不扣库存，也到不了 saveOrder。", "modules": ["orders", "inventory"], "sources": [{ "path": "src/orders.js", "match": "  if (!reserveStock", "length": 5 }, { "path": "src/inventory.js", "match": "export function reserveStock", "length": 6 }] },
+        { "id": "result", "kind": "outcome", "label": "记录并返回订单", "status": "covered", "summary": "预留成功后，记录商品、数量和“待处理”状态，并把这笔订单返回给调用方。", "codeExplanation": "saveOrder 在所有提前返回之后执行，写入的状态是“待处理”。accepted: true 说明本次受理成功，不表示付款或发货已完成。", "modules": ["orders", "records"], "sources": [{ "path": "src/orders.js", "match": "  const order = saveOrder", "length": 2 }] },
+        { "id": "payment", "kind": "side_effect", "label": "付款与发货（待确认）", "status": "unknown", "summary": "现有示例到返回订单为止，不能据此认定顾客已经付款或商品已经发出。", "nextCheck": "若要说明后续履约，需要继续核对支付接入、发货处理与订单状态更新。", "modules": ["orders"], "sources": [] }
       ],
       "sources": [{ "path": "src/orders.js", "match": "export function submitOrder", "length": 12 }]
     },
     {
       "id": "cancellation", "title": "取消一笔订单", "kind": "user_flow",
       "summary": "找到订单后返还购买数量，再把状态改为“已取消”；再次取消不会重复增加库存。",
-      "trigger": "调用方提供需要取消的订单号。", "outcome": "库存得到返还，原订单保留并标记为“已取消”。",
+      "trigger": "调用方提供需要取消的订单号。", "outcome": "成功取消时返还库存并保留订单；找不到时返回提示，已取消时返回原结果。",
       "modules": ["orders", "inventory", "records"], "views": ["overview", "cancel_order"],
       "stages": [
-        { "id": "lookup", "kind": "entry", "label": "先找到要取消的订单", "status": "covered", "summary": "根据订单号读取原记录。找不到时返回提示，后续库存和状态都不修改。", "modules": ["orders", "records"], "sources": [{ "path": "src/orders.js", "match": "export function cancelOrder", "length": 3 }] },
-        { "id": "guard", "kind": "validation", "label": "已经取消过，就返回原结果", "status": "covered", "summary": "订单已是“已取消”时，到这里就结束，避免对同一笔订单重复返还商品数量。", "modules": ["orders"], "sources": [{ "path": "src/orders.js", "match": "  if (order.status ===", "length": 1 }] },
-        { "id": "release", "kind": "write", "label": "把购买数量还回库存", "status": "covered", "summary": "取出原订单的商品和购买数量，将其加回可售库存。", "modules": ["orders", "inventory"], "sources": [{ "path": "src/orders.js", "match": "  releaseStock(order.productId", "length": 1 }, { "path": "src/inventory.js", "match": "export function releaseStock", "length": 3 }] },
-        { "id": "result", "kind": "outcome", "label": "保留订单，更新取消结果", "status": "covered", "summary": "保留原购买内容，把状态更新为“已取消”，再返回更新后的订单。这里没有展示退款步骤。", "modules": ["orders", "records"], "sources": [{ "path": "src/orders.js", "match": "  const cancelled = saveOrder", "length": 2 }] }
+        { "id": "lookup", "kind": "entry", "label": "找到待取消订单", "status": "covered", "summary": "根据订单号读取原记录。找不到时返回提示，后续库存和状态都不修改。", "codeExplanation": "findOrder 的结果为空就 return。releaseStock 和 saveOrder 都在判断之后，所以找不到订单不会触发任何写入。", "modules": ["orders", "records"], "sources": [{ "path": "src/orders.js", "match": "export function cancelOrder", "length": 3 }] },
+        { "id": "guard", "kind": "validation", "label": "拦住重复取消", "status": "covered", "summary": "订单已是“已取消”时，到这里就结束，避免对同一笔订单重复返还商品数量。", "codeExplanation": "状态检查在 releaseStock 之前。命中“已取消”就返回原订单，不会再次执行库存加法。", "modules": ["orders"], "sources": [{ "path": "src/orders.js", "match": "  if (order.status ===", "length": 2 }] },
+        { "id": "release", "kind": "write", "label": "返还购买数量", "status": "covered", "summary": "取出原订单的商品和购买数量，将其加回可售库存。", "codeExplanation": "调用使用原订单的 productId 和 quantity；releaseStock 将原可售数量与 quantity 相加后写回，返还的是原购买数量。", "modules": ["orders", "inventory"], "sources": [{ "path": "src/orders.js", "match": "  releaseStock(order.productId", "length": 1 }, { "path": "src/inventory.js", "match": "export function releaseStock", "length": 3 }] },
+        { "id": "result", "kind": "outcome", "label": "保存取消结果", "status": "covered", "summary": "保留原购买内容，把状态更新为“已取消”，再返回更新后的订单。这里没有展示退款步骤。", "codeExplanation": "展开原订单后只覆盖 status，再调用 saveOrder 保存；因此订单仍可查询，商品和数量保留，状态变为“已取消”。", "modules": ["orders", "records"], "sources": [{ "path": "src/orders.js", "match": "  const cancelled = saveOrder", "length": 2 }] }
       ],
       "sources": [{ "path": "src/orders.js", "match": "export function cancelOrder", "length": 8 }]
     }

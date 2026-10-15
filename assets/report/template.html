@@ -12,9 +12,9 @@
 </head>
 <body>
   <header class="app-header">
-    <button class="icon-button mobile-menu" id="open-nav" aria-label="打开目录" title="打开目录"><i data-lucide="menu"></i></button>
+    <button class="icon-button mobile-menu" id="open-nav" aria-label="打开目录" aria-controls="sidebar" aria-expanded="false" title="打开目录"><i data-lucide="menu"></i></button>
     <div class="brand-symbol"><i data-lucide="network"></i></div>
-    <div class="brand"><h1 id="project-title">项目模块图谱</h1><span id="project-subtitle">业务与系统说明</span></div>
+    <div class="brand"><h1 id="project-title">项目模块图谱</h1><span id="project-subtitle">项目架构与业务流程</span></div>
     <div class="header-meta"><span class="live-mark"></span><span>源码快照 <time id="baseline-date"></time></span><button class="snapshot-chip" id="update-button" type="button" hidden aria-label="查看快照更新"><i data-lucide="git-compare-arrows"></i><span id="update-label">有增量更新</span></button><span class="offline">离线可用</span></div>
     <button class="icon-button" id="about-button" title="基线与证据范围" aria-label="基线与证据范围"><i data-lucide="info"></i></button>
   </header>
@@ -30,31 +30,36 @@
     <main id="main-content">
       <p id="review-banner" class="review-banner" hidden role="status"></p>
       <section class="view-heading">
-        <div><button class="text-link overview-link" id="overview-link" hidden><i data-lucide="arrow-left"></i>项目总览</button><div class="eyebrow" id="view-group"></div><h2 id="view-title"></h2><p id="view-subtitle"></p></div>
-        <div><div class="view-tags" id="view-tags"></div><button class="text-link" id="copy-view-link" type="button">复制当前位置链接</button></div>
+        <div class="heading-copy"><div class="view-path"><button class="text-link overview-link" id="overview-link" hidden><i data-lucide="arrow-left"></i>项目总览</button><div class="eyebrow" id="view-group"></div></div><h2 id="view-title"></h2><p id="view-subtitle"></p></div>
+        <div class="view-actions"><div class="view-tags" id="view-tags"></div><button class="text-link" id="copy-view-link" type="button">复制当前位置链接</button></div>
       </section>
       <section class="project-intro" id="project-intro" hidden aria-label="项目与分析范围">
-        <span class="intro-kicker">先看懂全貌，再深入细节</span>
+        <span class="intro-kicker">阅读顺序：项目架构 → 业务流程 → 数据流向 → 数据结构</span>
         <p id="project-summary"></p>
-        <div class="reading-actions" aria-label="选择阅读方向">
-          <button id="read-flows" type="button"><i data-lucide="route"></i><span>了解业务流程</span><i data-lucide="arrow-down"></i></button>
-          <button id="read-findings" type="button"><i data-lucide="lightbulb"></i><span>查看关键结论</span><i data-lucide="arrow-down"></i></button>
-          <button id="read-evidence" type="button"><i data-lucide="book-open"></i><span>查阅源码依据</span><i data-lucide="arrow-up-right"></i></button>
+        <div class="intro-tools">
+          <div class="reading-actions" aria-label="选择阅读方向">
+            <button id="read-flows" type="button"><i data-lucide="route"></i><span>业务流程</span><i data-lucide="arrow-down"></i></button>
+            <button id="read-dataflow" type="button"><i data-lucide="arrow-right-left"></i><span>数据流向</span><i data-lucide="arrow-up-right"></i></button>
+            <button id="read-structures" type="button"><i data-lucide="database"></i><span>数据结构</span><i data-lucide="arrow-up-right"></i></button>
+          </div>
+          <details class="reading-boundary"><summary>分析范围与未确认事项</summary><p class="project-scope" id="project-scope"></p><p id="reading-boundary"></p></details>
         </div>
-        <details class="reading-boundary"><summary>这份报告讲到哪里</summary><p class="project-scope" id="project-scope"></p><p id="reading-boundary"></p></details>
       </section>
-      <section class="chain-section" id="chain-section" hidden>
-        <div class="section-heading"><h3>业务如何运转</h3><div class="chain-heading-tools"><span id="chain-count"></span><label class="compact-select"><span class="sr-only">筛选业务链路</span><select id="chain-filter" aria-label="筛选业务链路"><option value="all">全部链路</option><option value="review">待复核</option><option value="incomplete">覆盖不完整</option><option value="covered">已覆盖</option></select></label></div></div>
-        <p class="section-lead">从你关心的业务开始，看它如何发生、经过哪些环节、最后得到什么。</p>
-        <div class="chain-grid" id="chain-grid"></div>
-        <nav class="pagination" id="chain-pages" aria-label="业务链路分页" hidden></nav>
-      </section>
-      <section class="findings-section" id="findings-section" hidden>
-        <div class="section-heading"><h3>值得先了解的结论</h3><button class="text-link" id="all-findings">查看全部结论</button></div>
-        <div class="finding-highlights" id="finding-highlights"></div>
-      </section>
-      <section class="graph-section" id="graph-section" aria-label="关系图画布">
-        <div class="graph-intro"><h3 id="graph-reading-title">这些部分如何协作</h3><p id="graph-reading-lead">沿着连线了解彼此的关系，点击节点可查看职责与依据。</p></div>
+      <section class="visual-section" id="visual-section" aria-label="项目架构、流程与数据流向">
+        <div class="graph-intro"><h3 id="graph-reading-title">模块之间的数据流向</h3><p id="graph-reading-lead">沿箭头查看传递的数据，点击模块了解职责与输入输出。</p></div>
+        <div class="flow-context" id="flow-context" hidden></div>
+        <nav class="stage-nav" id="stage-nav" hidden aria-label="选择流程阶段"></nav>
+        <div class="visual-workspace" id="visual-workspace">
+        <div class="visual-tabs" id="visual-tabs" role="tablist" aria-label="图解与详细说明" hidden>
+          <button type="button" id="diagram-tab" role="tab" aria-controls="visual-main" aria-selected="true" data-visual-pane="diagram">查看图解</button>
+          <button type="button" id="reader-tab" role="tab" aria-controls="reading-panel" aria-selected="false" tabindex="-1" data-visual-pane="reader">详细说明</button>
+        </div>
+        <div class="visual-layout" id="visual-layout">
+        <div class="visual-main" id="visual-main">
+        <section class="graph-section" id="graph-section" aria-label="关系图画布">
+        <div class="graph-explore" id="graph-explore" hidden>
+          <span id="focus-caption" aria-live="polite">点击模块，查看职责与数据流向</span><button id="clear-focus" class="text-link" hidden>查看全部模块</button>
+        </div>
         <div class="graph-toolbar">
           <div class="legend" id="view-legend"></div>
           <div class="graph-actions">
@@ -69,17 +74,38 @@
             <button class="icon-button" id="show-view-evidence" title="本视图源码依据" aria-label="本视图源码依据"><i data-lucide="files"></i></button>
           </div>
         </div>
-        <div class="graph-viewport" id="graph-viewport" tabindex="0" aria-label="可拖动的关系图" title="拖动画布；Ctrl + 滚轮或双指缩放；点击模块节点查看依据">
+        <div class="flow-playback" id="flow-playback" hidden>
+          <button type="button" class="flow-toggle" id="toggle-flow" aria-label="动态数据流" aria-pressed="true" aria-controls="graph-stage" aria-describedby="flow-explanation"><span id="flow-pause-icon"><i data-lucide="pause"></i></span><span id="flow-play-icon" hidden><i data-lucide="play"></i></span><span id="flow-toggle-label">暂停流动</span></button>
+          <span id="flow-status" role="status" aria-live="polite"></span>
+          <span class="flow-explanation" id="flow-explanation" title="标记沿箭头演示数据的提供方与接收方，不表示实时运行、传输速度或执行先后。">方向示意</span>
+        </div>
+        <div class="graph-viewport" id="graph-viewport" tabindex="0" aria-label="可拖动的关系图" title="拖动画布；Ctrl + 滚轮或双指缩放；点击模块查看职责与数据流向">
           <div class="graph-stage" id="graph-stage"></div>
           <div id="graph-status" class="graph-status" role="status">正在绘制关系图</div>
           <span class="canvas-stamp" id="canvas-stamp"></span>
         </div>
         <div class="graph-caption"><span id="diagram-kind"></span><span id="diagram-counter"></span></div>
-      </section>
-      <section class="sequence-section" id="sequence-section" hidden aria-label="流程说明">
-        <div class="section-heading"><h3>这件事是怎样完成的</h3><span id="sequence-count"></span></div>
+        </section>
+        <section class="sequence-section" id="sequence-section" hidden aria-label="流程阶段导览">
+        <div class="section-heading"><h3>按阶段了解这条流程</h3><span id="sequence-count"></span></div>
         <p class="section-lead" id="sequence-intro"></p>
         <div class="sequence-list" id="sequence-list"></div>
+        </section>
+        </div>
+        <aside class="reading-panel" id="reading-panel" aria-label="当前节点的职责、数据与流程说明" tabindex="-1"><div id="reader-body"></div></aside>
+        <section class="facts-band" id="view-notes" aria-label="关键关系说明"></section>
+        </div>
+        </div>
+      </section>
+      <section class="chain-section" id="chain-section" hidden>
+        <div class="section-heading"><h3>关键业务流程</h3><div class="chain-heading-tools"><span id="chain-count"></span><label class="compact-select"><span class="sr-only">筛选业务链路</span><select id="chain-filter" aria-label="筛选业务链路"><option value="all">全部链路</option><option value="review">待复核</option><option value="incomplete">覆盖不完整</option><option value="covered">已覆盖</option></select></label></div></div>
+        <p class="section-lead">选择一个业务场景，按“触发 → 处理与分支 → 数据变化 → 结果”阅读。</p>
+        <div class="chain-grid" id="chain-grid"></div>
+        <nav class="pagination" id="chain-pages" aria-label="业务链路分页" hidden></nav>
+      </section>
+      <section class="findings-section" id="findings-section" hidden>
+        <div class="section-heading"><h3>关键行为与边界</h3><button class="text-link" id="all-findings">查看全部结论</button></div>
+        <div class="finding-highlights" id="finding-highlights"></div>
       </section>
       <section class="catalog-section" id="catalog-section" hidden>
         <div class="section-heading"><h3>查阅依据与细节</h3><span id="catalog-count"></span></div>
@@ -90,15 +116,14 @@
         <div class="table-scroll"><table><thead id="catalog-head"></thead><tbody id="catalog-body"></tbody></table></div>
         <nav class="pagination" id="catalog-pages" aria-label="证据索引分页" hidden></nav>
       </section>
-      <section class="facts-band" id="view-notes" aria-label="关键关系说明"></section>
       <section class="module-section" id="module-section">
-        <div class="section-heading"><h3>各部分分别负责什么</h3><span id="module-count"></span></div>
-        <div class="module-list" id="module-list"></div>
+        <div class="section-heading"><h3>模块职责与数据去向</h3><span id="module-count"></span></div>
+        <div class="table-scroll"><table class="responsibility-table"><caption class="sr-only">模块职责与数据去向对照</caption><thead><tr><th scope="col">模块</th><th scope="col">主要职责</th><th scope="col">数据接收方</th><th scope="col">源码依据</th></tr></thead><tbody id="module-list"></tbody></table></div>
         <div class="module-detail" id="module-detail" hidden></div>
       </section>
       <section class="alias-section" id="alias-section" hidden><div class="section-heading"><h3>图中对象与实际名称</h3><span>关联语义见图例和说明</span></div><div class="alias-list" id="alias-list"></div></section>
       <details class="quality-section" id="quality-section" hidden>
-        <summary>还有哪些地方需要补充确认 <span id="quality-count"></span></summary>
+        <summary>待补充确认的事项 <span id="quality-count"></span></summary>
         <ul id="quality-list"></ul>
       </details>
       <section class="summary-strip" id="summary-strip" aria-label="分析规模">

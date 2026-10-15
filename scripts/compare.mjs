@@ -11,7 +11,7 @@ const options = parseOptions(process.argv.slice(2), {
 });
 
 const collections = [
-  ['modules', 'id'], ['views', 'id'], ['chains', 'id'], ['findings', 'id'],
+  ['modules', 'id'], ['relations', 'id'], ['views', 'id'], ['chains', 'id'], ['findings', 'id'],
   ['coverage', 'id'], ['tables', 'name'], ['routes', 'prefix'], ['flags', 'name']
 ];
 const runtimeFields = new Set(['freshness', 'reviewRequired', 'staleReason']);

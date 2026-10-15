@@ -5,7 +5,7 @@ import { redactValue, redactionValues } from './evidence-lib.mjs';
 
 export function entityRows(manifest) {
   const rows = [];
-  for (const [type, collection, field] of [['module', 'modules', 'id'], ['view', 'views', 'id'], ['chain', 'chains', 'id'], ['finding', 'findings', 'id'], ['coverage', 'coverage', 'id'], ['table', 'tables', 'name'], ['route', 'routes', 'prefix'], ['flag', 'flags', 'name']]) {
+  for (const [type, collection, field] of [['module', 'modules', 'id'], ['relation', 'relations', 'id'], ['view', 'views', 'id'], ['chain', 'chains', 'id'], ['finding', 'findings', 'id'], ['coverage', 'coverage', 'id'], ['table', 'tables', 'name'], ['route', 'routes', 'prefix'], ['flag', 'flags', 'name']]) {
     for (const row of manifest[collection] || []) {
       rows.push({ key: `${type}:${row[field]}`, row });
       if (type === 'chain') for (const stage of row.stages || []) rows.push({ key: `chain-stage:${row.id}/${stage.id}`, row: stage });

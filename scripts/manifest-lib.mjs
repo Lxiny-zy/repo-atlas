@@ -6,7 +6,7 @@ import { inside, planOutput } from './io-lib.mjs';
 
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const list = value => Array.isArray(value) ? value : [];
-const collections = ['modules', 'views', 'chains', 'findings', 'coverage', 'tables', 'routes', 'flags'];
+const collections = ['modules', 'relations', 'views', 'chains', 'findings', 'coverage', 'tables', 'routes', 'flags'];
 export function manifestRows(manifest) {
   const rows = [];
   if (!isObject(manifest)) return rows;
@@ -81,6 +81,8 @@ export function validateManifest(manifest, { sanitize = true } = {}) {
   };
   const modules = unique(manifest.modules, 'id', '/modules');
   const views = unique(manifest.views, 'id', '/views');
+  const relations = new Map(list(manifest.relations).filter(isObject).map(row => [row.id, row]));
+  const tables = new Map(list(manifest.tables).filter(isObject).map(row => [row.name, row]));
   for (const collection of collections.filter(key => !['modules', 'views'].includes(key))) unique(manifest[collection], collection === 'routes' ? 'prefix' : ['tables', 'flags'].includes(collection) ? 'name' : 'id', `/${collection}`);
   const references = (ids, targets, path) => list(ids).forEach((id, index) => {
     if (typeof id === 'string' && !targets.has(id)) add('reference.unknown', `${path}/${index}`, '引用的目标不存在于清单中。');
@@ -88,9 +90,45 @@ export function validateManifest(manifest, { sanitize = true } = {}) {
   for (const { row, path, collection } of manifestRows(manifest)) {
     references(row.modules, modules, `${path}/modules`);
     if (collection === 'modules') references(row.links, modules, `${path}/links`);
+    if (collection === 'relations') {
+      for (const endpoint of ['from', 'to']) if (typeof row[endpoint] === 'string' && !modules.has(row[endpoint])) add('reference.unknown', `${path}/${endpoint}`, '关系端点必须是已登记的模块。');
+    }
+    if (collection === 'stages') references(row.relations, relations, `${path}/relations`);
+    if (collection === 'views') {
+      references(row.relations, relations, `${path}/relations`);
+      references(row.tables, tables, `${path}/tables`);
+      list(row.relations).forEach((id, index) => {
+        const relation = relations.get(id);
+        if (relation && [relation.from, relation.to].some(id => !list(row.modules).includes(id))) add('reference.outsideView', `${path}/relations/${index}`, '关系的两个端点必须包含在当前视图的 modules 中。');
+      });
+      if (!row.diagram && list(row.relations).length && ![undefined, 'overview', 'dependency', 'data_flow', 'flow'].includes(row.kind)) add('reference.diagramKind', `${path}/kind`, '自动关系图适用于 overview、dependency、data_flow 或 flow 视图。');
+    }
+    if (collection === 'tables') {
+      unique(row.fields, 'name', `${path}/fields`);
+      list(row.fields).forEach((field, index) => {
+        if (!isObject(field?.references)) return;
+        const target = tables.get(field.references.table);
+        if (!target) add('reference.unknown', `${path}/fields/${index}/references/table`, '字段关联的数据对象不存在。');
+        else if (!list(target.fields).some(item => item?.name === field.references.field)) add('reference.unknown', `${path}/fields/${index}/references/field`, '关联的目标字段未登记。');
+      });
+    }
     if (collection === 'chains') { references(row.views, views, `${path}/views`); unique(row.stages, 'id', `${path}/stages`); }
     unique(row.sources, 'id', `${path}/sources`);
   }
+  list(manifest.views).forEach((view, viewIndex) => {
+    const path = `/views/${viewIndex}/bindings`;
+    unique(view?.bindings, 'node', path);
+    list(view?.bindings).forEach((binding, index) => {
+      if (!isObject(binding)) return;
+      const chain = list(manifest.chains).find(row => row?.id === binding.chain);
+      if (!chain) add('reference.unknown', `${path}/${index}/chain`, '节点绑定的业务链路不存在。');
+      else {
+        if (!list(chain.stages).some(stage => stage?.id === binding.stage)) add('reference.unknown', `${path}/${index}/stage`, '节点绑定的阶段不存在于该链路。');
+        if (!list(chain.views).includes(view.id)) add('reference.unlinked', `${path}/${index}/chain`, '节点绑定的链路必须在 views 中关联当前视图。');
+      }
+      if (!view.diagram) add('reference.diagram', `${path}/${index}/node`, '节点绑定需要当前视图提供 diagram。');
+    });
+  });
   return sanitize ? finish(manifest, diagnostics) : diagnostics;
 }
 

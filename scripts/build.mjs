@@ -9,6 +9,7 @@ import { planOutput, atomicWrite } from './io-lib.mjs';
 import { collectSourceRows, createSnapshot, analysisManifestHash } from './snapshot-lib.mjs';
 import { assertManifest } from './manifest-lib.mjs';
 import { parseOptions } from './cli-lib.mjs';
+import { relationVariants } from './relation-lib.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const options = parseOptions(process.argv.slice(2), { boolean: ['replace', 'review'], usage: 'Usage: node scripts/build.mjs <atlas.json> [--replace] [--review]' });
@@ -103,6 +104,9 @@ const modules = await Promise.all(requireList(manifest.modules, 'modules').map(a
 if (!modules.length) throw new Error('At least one evidenced module is required');
 const moduleIds = new Set(modules.map(module => module.id));
 for (const module of modules) for (const id of module.links) if (!moduleIds.has(id)) throw new Error(`Unknown module link: ${module.id} -> ${id}`);
+const relations = await Promise.all((manifest.relations || []).map(async relation => ({
+  ...relation, payload: relation.payload || [], ...freshnessFields(relation), sources: await Promise.all(relation.sources.map(evidence))
+})));
 
 const flowClasses = await readFile(resolve(here, '../assets/report/flow-classes.mmd'), 'utf8');
 const inferViewKind = diagram => {
@@ -114,16 +118,16 @@ const inferViewKind = diagram => {
   if (/^\s*(flowchart|graph)\s/.test(value)) return 'flow';
   return 'custom';
 };
-const viewKinds = new Set(['overview', 'flow', 'narrative', 'sequence', 'state', 'data', 'deployment', 'recovery', 'dependency', 'mindmap', 'custom']);
+const viewKinds = new Set(['overview', 'flow', 'narrative', 'sequence', 'state', 'data', 'data_flow', 'deployment', 'recovery', 'dependency', 'mindmap', 'custom']);
 const views = await Promise.all(requireList(manifest.views || [], 'views').map(async view => {
   uniqueId(view.id, 'view');
   if (view.id === 'catalog') throw new Error('catalog is reserved for the generated index');
   requireText(view.title, 'view.title');
-  if (view.kind !== 'narrative') requireText(view.diagram, 'view.diagram');
+  const generated = !view.diagram && view.relations?.length ? relationVariants(view, modules, relations) : null;
+  if (view.kind !== 'narrative' && !generated) requireText(view.diagram, 'view.diagram');
   else if (view.diagram != null) requireText(view.diagram, 'view.diagram');
   const inferredKind = inferViewKind(view.diagram || '');
-  // Legacy sequence views remain addressable, but never reach the SVG renderer.
-  const kind = inferredKind === 'sequence' ? 'sequence' : view.kind || inferredKind;
+  const kind = inferredKind === 'sequence' ? 'sequence' : generated && (!view.kind || view.kind === 'dependency') ? 'data_flow' : view.kind || inferredKind;
   if (!viewKinds.has(kind)) throw new Error(`Invalid view.kind in ${view.id}: ${kind}`);
   if (view.mobileDiagram != null) requireText(view.mobileDiagram, `view.mobileDiagram in ${view.id}`);
   for (const id of requireList(view.modules, 'view.modules')) if (!moduleIds.has(id)) throw new Error(`Unknown module in view ${view.id}: ${id}`);
@@ -138,8 +142,11 @@ const views = await Promise.all(requireList(manifest.views || [], 'views').map(a
   const theme = diagram => /^\s*(flowchart|graph)\s/.test(diagram) && view.useDefaultClasses !== false ? diagram + '\n' + flowClasses : diagram;
   return {
     id: view.id, title: view.title, subtitle: view.subtitle || '', icon: view.icon || 'network', group: view.group || '项目图谱',
-    kind, tags, diagram: kind === 'narrative' ? undefined : theme(view.diagram),
-    mobileDiagram: !['sequence', 'narrative'].includes(kind) && view.mobileDiagram && inferViewKind(view.mobileDiagram) !== 'sequence' ? theme(view.mobileDiagram) : undefined,
+    kind, tags, diagram: generated ? generated.variants[generated.defaultMode].diagram : view.diagram ? theme(view.diagram) : undefined,
+    mobileDiagram: generated ? generated.variants[generated.defaultMode].mobileDiagram : view.mobileDiagram ? theme(view.mobileDiagram) : undefined,
+    relations: view.relations || [], tables: view.tables || [],
+    ...(generated ? { relationDiagrams: generated.variants, defaultRelationMode: generated.defaultMode } : {}),
+    bindings: view.bindings || [],
     modules: view.modules, notes, aliases: Object.keys(aliases).length ? aliases : undefined, legend: legend.length ? legend : undefined, ...freshnessFields(view),
     sources: await Promise.all(requireList(view.sources || [], `view.sources in ${view.id}`).map(evidence))
   };
@@ -173,14 +180,15 @@ const chains = await Promise.all(requireList(manifest.chains || [], 'chains').ma
     const sources = await Promise.all(requireList(stage.sources || [], `chain stage.sources in ${chain.id}/${stage.id}`).map(evidence));
     if (['covered', 'partial'].includes(stage.status) && !sources.length) throw new Error(`Chain stage ${chain.id}/${stage.id} requires evidence`);
     if (stage.status === 'unknown' && !stage.nextCheck) throw new Error(`Unknown chain stage ${chain.id}/${stage.id} must provide nextCheck`);
-    return { id: stage.id, kind: stage.kind || 'custom', label: stage.label, status: stage.status, summary: stage.summary, nextCheck: stage.nextCheck || '', modules: stageModules, ...freshnessFields(stage), sources };
+    return { id: stage.id, kind: stage.kind || 'custom', label: stage.label, status: stage.status, summary: stage.summary, codeExplanation: stage.codeExplanation || '', relations: stage.relations || [], nextCheck: stage.nextCheck || '', modules: stageModules, ...freshnessFields(stage), sources };
   }));
   const sources = await Promise.all(requireList(chain.sources, `chain.sources in ${chain.id}`).map(evidence));
   if (!sources.length) throw new Error(`No evidence for chain ${chain.id}`);
   return { id: chain.id, title: chain.title, kind: chain.kind || '业务链路', summary: chain.summary, trigger: chain.trigger, outcome: chain.outcome, modules: related, views: chainViews, stages: normalizedStages, ...freshnessFields(chain), sources };
 }));
 for (const chain of chains) {
-  let readingView = views.find(view => ['sequence', 'narrative'].includes(view.kind) && chain.views.includes(view.id));
+  let readingView = views.find(view => view.bindings?.some(binding => binding.chain === chain.id))
+    || views.find(view => ['sequence', 'narrative'].includes(view.kind) && chain.views.includes(view.id));
   if (!readingView) {
     let id = `chain_${chain.id.slice(0, 56)}`;
     while (viewIds.has(id)) id = `${id.slice(0, 63)}_`;
@@ -190,14 +198,13 @@ for (const chain of chains) {
   }
   chain.readingView = readingView.id;
   if (!chain.views.includes(readingView.id)) chain.views.push(readingView.id);
-  for (const view of views.filter(view => ['sequence', 'narrative'].includes(view.kind) && chain.views.includes(view.id))) {
+  for (const view of views.filter(view => chain.views.includes(view.id))) {
     view.chainIds ||= [];
     view.chainIds.push(chain.id);
   }
 }
 if (!views.length && !chains.length) throw new Error('At least one view or business chain is required');
-// A legacy sequence view can use existing notes when no chain is available.
-// Surface the evidence gap; do not invent a narrative by translating arrows.
+// An unannotated diagram remains visible. Never infer business stages from arrows.
 const incompleteNarratives = views.filter(view => ['sequence', 'narrative'].includes(view.kind) && !view.chainIds?.length && !view.notes.length);
 const evidenceRows = async (rows, kind) => Promise.all(requireList(rows || [], kind).map(async row => {
   const identity = kind === 'routes' ? row.prefix : row.name;
@@ -293,16 +300,13 @@ for (const repo of requireList(manifest.repositories || [], 'repositories')) {
   repositories.push({ name: repo.name || repo.path, path: repo.path, commit: git(['rev-parse', '--short=8', 'HEAD']), branch: git(['branch', '--show-current']) || '(detached HEAD)', dirty: git(['status', '--short', '--untracked-files=no']).split(/\r?\n/).filter(Boolean) });
 }
 views.push({ id: 'catalog', title: '证据与覆盖索引', subtitle: '集中查看发现项、分析覆盖、对象、入口、配置和源码文件。', icon: 'list-tree', group: '证据', tags: ['可追溯索引'], modules: modules.map(module => module.id), notes: [['分析范围', project.scope], ['验证边界', project.boundary]], sources: [] });
-// Sequence diagrams are retained as source evidence, but the report presents
-// their linked chain stages as readable prose instead of rendering a dense
-// Mermaid canvas.
-const diagramViews = views.filter(view => view.diagram && !['sequence', 'narrative'].includes(view.kind));
+const diagramViews = views.filter(view => view.diagram);
 const qualityWarnings = [];
 for (const view of incompleteNarratives) qualityWarnings.push(`流程“${view.title}”缺少文字说明；请补充业务阶段或视图备注。`);
 if (modules.length >= 8 && !chains.length) qualityWarnings.push('模块数量较多但没有登记业务链路；复杂项目容易退化为一张总览图。');
 for (const chain of chains) {
-  if (chain.stages[0]?.kind && !['entry', 'authorization', 'validation', 'custom'].includes(chain.stages[0].kind)) qualityWarnings.push(`“${chain.title}”从中间处理环节开始，阅读时还需要确认之前由谁发起、需要满足哪些条件。`);
-  if (chain.stages.at(-1)?.kind && !['outcome', 'recovery', 'custom'].includes(chain.stages.at(-1).kind)) qualityWarnings.push(`“${chain.title}”的步骤尚未讲到最终结果或异常恢复，后续处理还需要补充确认。`);
+  if (!chain.stages.some(stage => ['entry', 'authorization', 'validation', 'custom'].includes(stage.kind))) qualityWarnings.push(`“${chain.title}”尚未登记入口或前置条件，还需要确认由谁发起、需要满足哪些条件。`);
+  if (!chain.stages.some(stage => ['outcome', 'recovery', 'custom'].includes(stage.kind))) qualityWarnings.push(`“${chain.title}”尚未登记业务结果或异常恢复，后续处理还需要补充确认。`);
   const linkedViews = chain.views.map(id => views.find(view => view.id === id)).filter(Boolean);
   const linkedModules = new Set(linkedViews.flatMap(view => view.modules));
   for (const moduleId of chain.modules) if (linkedViews.length && !linkedModules.has(moduleId)) qualityWarnings.push(`“${chain.title}”涉及的“${modules.find(module => module.id === moduleId)?.name || '相关环节'}”尚未出现在配套关系图中。`);
@@ -317,7 +321,7 @@ function markUnresolved(row) {
     row.status = row.status === 'confirmed' ? 'unverified' : 'unknown';
   }
 }
-for (const [kind, rows, field] of [['module', modules, 'id'], ['view', views, 'id'], ['chain', chains, 'id'], ['finding', findings, 'id'], ['coverage', coverage, 'id'], ['table', tables, 'name'], ['route', routes, 'prefix'], ['flag', flags, 'name']]) {
+for (const [kind, rows, field] of [['module', modules, 'id'], ['relation', relations, 'id'], ['view', views, 'id'], ['chain', chains, 'id'], ['finding', findings, 'id'], ['coverage', coverage, 'id'], ['table', tables, 'name'], ['route', routes, 'prefix'], ['flag', flags, 'name']]) {
   for (const row of rows) {
     row.sources.forEach((source, index) => { source.key = `${kind}:${row[field]}:${source.sourceId ?? index}`; });
     markUnresolved(row);
@@ -327,14 +331,17 @@ for (const [kind, rows, field] of [['module', modules, 'id'], ['view', views, 'i
     }
   }
 }
+for (const view of views) {
+  if ((view.relations || []).some(id => relations.some(row => row.id === id && (row.reviewRequired || row.freshness === 'unresolved')))) { view.reviewRequired = true; view.freshness = 'stale'; }
+}
 const evidenceCount = [
-  ...modules, ...views, ...chains, ...chains.flatMap(chain => chain.stages), ...tables, ...routes, ...flags, ...findings, ...coverage
+  ...modules, ...relations, ...views, ...chains, ...chains.flatMap(chain => chain.stages), ...tables, ...routes, ...flags, ...findings, ...coverage
 ].reduce((sum, item) => sum + (item.sources?.length || 0), 0);
 const data = {
   project: { title: project.title, subtitle: project.subtitle || 'REPOSITORY ATLAS', summary: project.summary || '', scope: project.scope, boundary: project.boundary },
   date: new Date().toISOString().slice(0, 10),
   reviewMode, unresolvedCount, review: manifest.review || null,
-  renderer: 'Mermaid 10.9.3', modules, views, chains, findings, coverage, tables, routes, flags, files, repositories, scanGroups, quality,
+  renderer: 'Mermaid 10.9.3', modules, relations, views, chains, findings, coverage, tables, routes, flags, files, repositories, scanGroups, quality,
   update: manifest.update && typeof manifest.update === 'object' ? {
     mode: manifest.update.mode || 'incremental-candidate',
     generatedAt: manifest.update.generatedAt || null,

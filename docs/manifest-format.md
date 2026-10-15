@@ -54,9 +54,8 @@ node scripts/verify-schema.mjs --ajv tmp-schema-validation/node_modules/ajv/dist
       "name": "导入入口",
       "category": "入口",
       "icon": "terminal",
-      "summary": "解析命令参数后调用资料解析器。",
+      "summary": "接收文件路径与导入选项，返回规范化记录或错误信息。",
       "facts": ["输入路径由命令行参数传入。"],
-      "links": ["parser"],
       "sources": [{ "path": "src/main.py", "match": "def main(", "length": 12 }]
     },
     {
@@ -65,21 +64,34 @@ node scripts/verify-schema.mjs --ajv tmp-schema-validation/node_modules/ajv/dist
       "category": "核心处理",
       "summary": "读取输入文件并形成规范化记录。",
       "facts": ["解析失败由调用方处理异常。"],
-      "links": [],
+      "sources": [{ "path": "src/parser.py", "match": "def parse(", "length": 10 }]
+    }
+  ],
+  "relations": [
+    {
+      "id": "import_input", "kind": "data_flow", "from": "cli", "to": "parser",
+      "label": "文件路径与导入选项",
+      "summary": "导入入口把用户选择的文件和选项交给解析器。",
+      "sources": [{ "path": "src/main.py", "match": "def main(", "length": 12 }]
+    },
+    {
+      "id": "parsed_records", "kind": "data_flow", "from": "parser", "to": "cli",
+      "label": "规范化记录",
+      "summary": "解析成功后返回规范化记录，供入口汇总导入结果。",
       "sources": [{ "path": "src/parser.py", "match": "def parse(", "length": 10 }]
     }
   ],
   "views": [
     {
       "id": "overview",
-      "title": "模块关系总览",
+      "kind": "overview",
+      "title": "导入工具架构与数据流向",
       "subtitle": "从命令行入口到规范化记录。",
       "group": "全局",
       "tags": ["当前源码"],
-      "diagram": "flowchart LR\ncli[命令入口]:::entry -->|输入文件| parser[资料解析]:::core",
-      "mobileDiagram": "flowchart TB\ncli[命令入口]:::entry -->|输入文件| parser[资料解析]:::core",
+      "relations": ["import_input", "parsed_records"],
       "modules": ["cli", "parser"],
-      "notes": [["读图说明", "箭头表示调用方向。"]]
+      "notes": [["读图说明", "箭头从数据提供方指向接收方；请求与返回分别标注。"]]
     }
   ]
 }
@@ -159,12 +171,60 @@ node scripts/verify-schema.mjs --ajv tmp-schema-validation/node_modules/ajv/dist
 
 - 模块、视图、链路、阶段、发现项和覆盖项的 id：小写字母起始，只含小写字母、数字、`_`、`-`，各自最长 64 字符；阶段 id 在所属链路内唯一。`catalog` 是生成器保留视图。
 - 模块：id/name/summary/facts/sources 必填。sources 至少一项；links 指向已有模块 id；icon 是 Lucide 图标名，可省略。
-- 视图：id/title/diagram/modules 必填。subtitle/group/tags/notes 为说明；notes 是 `[标题, 内容]` 数组。`sources` 可为整张图补充直接依据，适合记录注册点、核心编排或关系约束；图中重要结论仍需能追溯到模块或视图证据。
+- 视图：id/title/modules 必填。通常填写 `diagram`；引用非空 `relations` 时可自动生成数据流图，`narrative` 也可只显示阶段导览。subtitle/group/tags/notes 为说明；notes 是 `[标题, 内容]` 数组。`sources` 可为整张图补充直接依据，适合记录注册点、核心编排或关系约束；图中重要结论仍需能追溯到模块或视图证据。
 - flowchart 的节点 id 与模块 id 相同即可点击查看该模块；非 flowchart 用下方关联模块访问说明。
 - `mobileDiagram` 可提供同义纵向变体；不提供时保留完整图和缩放能力。
 - flowchart 默认追加 entry/core/process/support/external/planned 类定义。需要完全自定义主题时 `useDefaultClasses: false`。
 - `aliases` 对象把图内短名映射到实际表、集合、队列或文件名称。
 - 可用 `legend` 自定义该视图图例：`[{"label":"业务模块","color":"#8ebba6"}]`；颜色必须为六位十六进制。非 flowchart 默认不展示业务分类图例。
+
+## 模块架构与数据流向
+
+`relations` 是显式关系集合，每条关系包含唯一 `id`、模块端点 `from` / `to`、`kind`、图中短标签 `label`、业务说明 `summary` 和至少一处 `sources`。可选 `payload` 列出传递的数据。
+
+| kind | 方向与用途 | 例子 |
+|---|---|---|
+| `data_flow` | 数据提供方 → 接收方，报告中展示的模块连线 | 库存 → 订单办理：预留结果 |
+| `dependency` | 使用方 → 被依赖方，兼容旧清单的结构化依据 | 订单办理 → 库存能力；不绘制为数据流 |
+
+视图通过 `relations` 引用关系 ID，端点必须包含在该视图的 `modules` 中。省略 `diagram` 时只绘制引用的 `data_flow`，不再生成依赖图、全部关系图或关系类型切换。新清单使用 `overview` 或 `data_flow`；旧的自动生成 `dependency` 视图按数据流展示。若只引用依赖关系，保留模块节点并提示尚未记录数据流，不根据依赖猜测数据内容和方向。手写 Mermaid 仍可用于分层和特殊布局，其模块节点 ID 使用 `modules[].id`。
+
+按“项目架构 → 业务流程 → 数据流向 → 数据结构”组织内容。总览已经展示同一组数据流时，无须再建相同的独立视图。`label` 简短标明数据内容，`payload` 列必要字段，`summary` 说明触发条件、接收方用途与业务结果；请求和返回分别记录。
+
+字段示例（合入已有清单）：
+
+```json
+{
+  "relations": [{
+    "id": "stock_result", "kind": "data_flow", "from": "inventory", "to": "orders",
+    "label": "预留结果", "payload": ["成功 / 失败"],
+    "summary": "库存返回能否预留，订单办理据此继续或拒绝。",
+    "sources": [{ "path": "src/inventory.js", "match": "export function reserveStock", "length": 6 }]
+  }],
+  "views": [{
+    "id": "data_flow", "kind": "data_flow", "title": "库存结果如何返回",
+    "modules": ["orders", "inventory"], "relations": ["stock_result"]
+  }]
+}
+```
+
+点击模块会突出相关数据流，展示职责、流入/流出的内容及关联对象；模块导航优先沿显式数据流查找来源和去向。没有数据流声明的旧清单仍可通过 `modules.links` 查阅未分类协作，不会把它们绘制成数据流。依赖与数据流证据均继续参与快照、增量影响、复核、版本比较和 AI 上下文；来源变化会连带标记引用该关系的视图。旧链接中的 `mode=dependency`、`mode=all` 和 `mode=data_flow` 仍可定位到对应模块，但统一显示数据流向。
+
+由 `relations` 生成的图自动为数据流连线添加可暂停的流动标记，不需要额外配置。同一对端点上的每条数据流分别绑定，选中模块只播放关联的数据流。手写 Mermaid 尚未声明边与关系的绑定，继续静态显示。动画仅表达数据方向，不推断实时活动、传输速度或执行顺序。播放偏好在本次打开报告的视图切换中保留；图离开屏幕、页面隐藏或切换到窄屏详情时暂停，恢复可见后继续。系统开启“减少动态效果”时默认静止，允许手动播放；打印和 SVG 导出移除动态标记。
+
+### 数据对象与 ER 交互
+
+`tables` 可描述数据库表，也可描述明确标注的逻辑对象；`kind` 和 `description` 应说明实际存储性质。可选 `modules` 关联参与模块，`fields` 定义字段：
+
+| 字段属性 | 含义 |
+|---|---|
+| `name`、`type`、`description` | 字段名、类型、业务含义，均为必填文本 |
+| `key` | 可选 `PK`、`FK`、`UK` 或 `KEY`；`KEY` 可标记 Map 等对象的键 |
+| `references` | 可选 `{ "table": "目标对象名", "field": "目标字段名", "kind": "logical" }` |
+
+引用的对象和字段必须存在。`references.kind` 必填 `logical` 或 `foreign_key`，明确区分逻辑关联和数据库外键。不要把字段同名或内存 Map 画成数据库约束。
+
+`views[].tables` 列出本图的数据对象名，ER 实体名可直接使用对象名，或通过 `aliases` 映射。例如 `"aliases": { "order_record": "orders" }`。移动图可用同名流程图节点简化展示，点击后仍能查看完整字段。完整示例见[订单清单](../examples/order-journey/atlas.json)。
 
 ## 业务链路与阶段覆盖
 
@@ -218,12 +278,33 @@ node scripts/verify-schema.mjs --ajv tmp-schema-validation/node_modules/ajv/dist
 
 - `chains` 可以为空，简单项目不必强行创建链路；复杂项目每条关键业务链都应有一项。
 - `stages` 至少三项，推荐按“入口与权限、校验与编排、数据读写、外部副作用、结果与下游、失败恢复”拆分；状态只能使用 `covered`、`partial`、`unknown`、`not_applicable`。
-- 阶段可用 `kind` 标注稳定语义：`entry`、`authorization`、`validation`、`orchestration`、`read`、`write`、`side_effect`、`publication`、`consume`、`outcome`、`recovery` 或 `custom`。首阶段通常应为 `entry` / `authorization` / `validation`，末阶段通常应为 `outcome` / `recovery`；生成器会对不一致情况给出质量提醒。
+- 阶段可用 `kind` 标注稳定语义：`entry`、`authorization`、`validation`、`orchestration`、`read`、`write`、`side_effect`、`publication`、`consume`、`outcome`、`recovery` 或 `custom`。生成器会提醒缺少入口 / 前置条件或结果 / 恢复阶段的链路；不按阶段数组的首尾位置判断流程是否完整。
 - `covered` 和 `partial` 阶段必须有证据；`unknown` 必须填写 `nextCheck`，不能用空证据伪装成已核对。
-- `views` 把链路绑定到关系图或流程说明。链路顺序优先由 `chains.stages` 的自然语言摘要、`trigger` 和 `outcome` 说明；不要求创建时序图。链路没有绑定 `narrative` / `sequence` 视图时，生成器会自动创建一张流程说明视图。需要回答状态迁移、数据约束、一致性、失败恢复或部署边界时，再补充对应关系图。
-- 视图可选填 `kind`（`overview`、`flow`、`narrative`、`sequence`、`state`、`data`、`deployment`、`recovery`、`dependency`、`mindmap`、`custom`）；省略时根据 Mermaid 首行推断。`narrative` 不需要 `diagram`，适合直接承载业务流程说明；`sequence` 仅作为旧清单的可选源码依据保留，报告前端会转为自然语言流程说明而不展示密集时序画布。链路关联视图中的模块应覆盖 `chain.modules`，否则报告会标记为待复核。
+- `views` 把链路关联到图解。阅读入口优先选择为该链路提供 `bindings` 的图，其次选择关联的 `narrative` / `sequence` 视图；都没有时生成阶段导览。阶段数组顺序用于阅读定位，不能代替源码中真实的分支、并行或提前返回。
+- 视图可选填 `kind`（`overview`、`flow`、`narrative`、`sequence`、`state`、`data`、`data_flow`、`deployment`、`recovery`、`dependency`、`mindmap`、`custom`）；省略时根据 Mermaid 首行推断，自动关系图默认为 `data_flow`，`dependency` 仅为旧清单兼容值。提供的 `diagram` 均会渲染，包括时序图及 `narrative` 内的图；`narrative` 未提供图时显示阶段导览。`mobileDiagram` 在窄屏替换主图。图表统计计实际 Mermaid 视图，不计阶段导览。链路关联视图中的模块应覆盖 `chain.modules`，否则报告会标记为待复核。
 - 报告会展示链路阶段进度、触发与结果、关联图和证据索引；阶段进度是证据覆盖度，不是系统质量评分。
 - 阶段进度使用 `covered / 适用阶段数`，`not_applicable` 单独列出，`partial` 不折算为半个已覆盖阶段。无适用阶段的链路显示“不适用”，不进入“已覆盖”筛选。阶段的 `reviewRequired` 或 `freshness` 为 `stale`、`unresolved`、`historical` 时，链路同时展示待复核状态；不改变原有覆盖状态。
+
+### 节点、业务阶段与追溯链接
+
+流程图视图可添加以下 `bindings` 字段，将 Mermaid 节点 ID 关联到业务阶段：
+
+```json
+"bindings": [
+  { "node": "stock", "chain": "purchase", "stage": "stock" },
+  { "node": "shortage", "chain": "purchase", "stage": "stock" }
+]
+```
+
+`node` 使用字母或下划线开头，其后可包含字母、数字、下划线和连字符；同一视图中必须唯一。`chain` 与其 `stage` 必须存在，且该链路的 `views` 包含当前视图。多个节点可指向同一个阶段，如库存判断和缺货结果；点击后展示业务条件、参与模块与结果。使用 `mobileDiagram` 时保留这些节点 ID。
+
+这些绑定针对 Mermaid 流程图节点。时序图和状态图照常渲染，关联链路可通过阶段导览选择说明；不会把消息顺序或状态名称猜成阶段。未设置绑定的流程图仍支持模块 ID 与同名节点的职责联动。
+
+阶段可选填 `relations` 关联实际涉及的数据传递，未配置时不根据模块名单推断阶段数据流。`codeExplanation` 作为可选的 AI 分析注释保留在结构化数据中，不默认渲染为人的阅读面板。
+
+报告在宽屏并排显示图与详细说明，窄屏就地切换。主界面不展示代码块；辅助链接指向源文件和行号，可选摘录链接在主动点击后显示离线依据。内嵌 `graph-data` 和 `atlas.json` 保留关系、字段和源码信息供 AI 读取。未知或未解析证据不冒用旧摘录。结构校验检查引用，浏览器验证检查真实 SVG 节点、数据流方向、模块聚焦、字段、链接与响应式布局。
+
+完整示例见 [订单业务清单](../examples/order-journey/atlas.json)，包含正常、拒绝、重复处理与未确认分支。
 
 ## 发现项与覆盖矩阵
 

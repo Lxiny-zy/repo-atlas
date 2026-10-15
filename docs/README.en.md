@@ -1,15 +1,15 @@
 # repo-atlas
 
-**Offline architecture maps backed by source evidence and explicit review.**
+**Understand a project through its architecture, business processes, data flows and data structures.**
 
 [![CI](https://github.com/Lxiny-zy/repo-atlas/actions/workflows/ci.yml/badge.svg)](https://github.com/Lxiny-zy/repo-atlas/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 [中文](../README.md) · [CLI reference](cli.md) · [Manifest contract](manifest-format.md) · [Contributing](../.github/CONTRIBUTING.md)
 
-![Chinese order-journey report: purpose and business flows before implementation details](../examples/order-journey/desktop.png)
+![Chinese order-journey report: explore module responsibilities, data flows and data objects](../examples/order-journey/desktop.png)
 
-repo-atlas turns a human-authored or AI-assisted `atlas.json` into a self-contained HTML report. Readers can trace modules, business chains, data objects and findings back to source excerpts. Snapshots, incremental diffs and explicit reviews keep that knowledge maintainable after the code changes.
+repo-atlas turns a human-authored or AI-assisted `atlas.json` into a self-contained HTML report. Readers explore architecture, data flows, business processes and ER diagrams by selecting modules and data objects. Source hyperlinks and structured evidence support AI analysis, verification and incremental maintenance.
 
 Use it to understand an unfamiliar repository, trace a feature end to end, or deliver architecture documentation that remains reviewable. **It does not automatically understand business semantics or prove runtime behavior from static relationships.**
 
@@ -24,7 +24,9 @@ node scripts/validate.mjs examples/order-journey/atlas.json
 node scripts/build.mjs examples/order-journey/atlas.json
 ```
 
-Open `examples/order-journey/report.html` directly. This Chinese-language demonstration explains placing and cancelling an order, with source details available on demand. Its synthetic source explicitly leaves payment, shipping and persistent storage outside the demonstrated behavior. To rebuild an existing output, add `--replace`.
+Open `examples/order-journey/report.html` directly. Start with module responsibilities and data flows, follow ordering and cancellation through their conditions and outcomes, then inspect states and data structures. Module connections show data delivery only; selecting a module reveals its incoming and outgoing data and related objects. Source code is available through links and optional excerpts. The synthetic example identifies its storage as in-memory objects. To rebuild an existing output, add `--replace`.
+
+Markers move along data-flow arrows with play/pause controls. Selecting a module limits motion to its related flows. Motion illustrates declared direction, not live activity, transfer speed or execution order. Reduced-motion preferences default to a static view; SVG exports and printing retain static arrows.
 
 The [reader-experience guide](analysis-guide.md#面向读者的表达) describes how to write business-oriented titles, stages and conclusions while keeping function names and file paths in evidence details.
 
@@ -40,8 +42,11 @@ Open `tests/fixtures/multi-chain/report.html`. Mermaid, icons, styles and intera
 
 | Reader need | Support |
 |---|---|
-| Understand module relationships | Overview, module details, authored upstream/downstream neighbors and stable links |
-| Follow business flows | Triggers, evidence-backed stages, outcomes, recovery and unresolved questions |
+| Understand architecture | Module responsibilities and boundaries, with related data flows highlighted on selection |
+| Trace data | Moving markers from sender to recipient, playback controls, module focus and payload descriptions |
+| Follow business flows | Branching flowcharts, sequence diagrams, state diagrams and linked stages |
+| Inspect data structures | Interactive ER objects with fields, keys and explicit logical or database references |
+| Trace source evidence | Real source hyperlinks, optional excerpts and structured evidence for AI |
 | Check the evidence | Source anchors, numbered excerpts, search, ambiguous and stale evidence states |
 | Understand knowledge gaps | Confirmed/inferred/unverified conclusions; separate coverage and review status |
 | Refresh previous work | File hashes, Git baselines, affected entities, unowned changes and bounded context |

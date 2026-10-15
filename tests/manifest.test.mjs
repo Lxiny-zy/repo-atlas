@@ -54,6 +54,47 @@ test('multiple field errors, duplicate identities and broken references are loca
   assert.doesNotThrow(() => validateManifest({ ...manifest, modules: [null, 42], chains: [null], project: [] }));
 });
 
+test('diagram bindings reject duplicate nodes, missing stages and unrelated chains', () => {
+  const manifest = copy();
+  manifest.views[0].bindings = [{ node: 'worker', chain: 'create_order', stage: 'validation' }];
+  manifest.chains[0].stages[1].codeExplanation = 'Validation runs before the order is published.';
+  assert.deepEqual(validateManifest(manifest), []);
+  manifest.views[0].bindings.push(
+    { node: 'worker', chain: 'create_order', stage: 'missing' },
+    { node: 'absent', chain: 'missing', stage: 'entry' }
+  );
+  manifest.chains[0].views = ['create_sequence'];
+  const errors = validateManifest(manifest);
+  for (const path of ['/views/0/bindings/1/node', '/views/0/bindings/1/stage', '/views/0/bindings/2/chain', '/views/0/bindings/0/chain']) assert.ok(errors.some(item => item.path === path), path);
+  const noDiagram = copy();
+  noDiagram.views[0].kind = 'narrative';
+  delete noDiagram.views[0].diagram;
+  noDiagram.views[0].bindings = [{ node: 'worker', chain: 'create_order', stage: 'validation' }];
+  assert.ok(validateManifest(noDiagram).some(item => item.code === 'reference.diagram'));
+});
+
+test('build preserves authored narrative and sequence charts with their stage explanations', async t => {
+  const dir = await fixture(t), manifest = copy();
+  manifest.views[0].kind = 'narrative';
+  manifest.views[0].bindings = [{ node: 'worker', chain: 'create_order', stage: 'validation' }];
+  manifest.views[1].mobileDiagram = manifest.views[1].diagram;
+  manifest.chains[0].stages[1].codeExplanation = 'Validation runs before publication.';
+  manifest.chains[0].stages[2].kind = 'outcome';
+  manifest.chains[0].stages.push({ id: 'future', kind: 'side_effect', label: 'Later behavior', status: 'unknown', summary: 'Later behavior remains unconfirmed.', nextCheck: 'Trace subsequent consumers.', sources: [] });
+  await put(dir, 'atlas.json', manifest);
+  const outcome = run(dir, 'build.mjs', 'atlas.json');
+  assert.equal(outcome.status, 0, outcome.stderr);
+  const html = await readFile(resolve(dir, 'report.html'), 'utf8');
+  const data = JSON.parse(html.match(/<script id="graph-data" type="application\/json">([\s\S]*?)<\/script>/)[1]);
+  assert.equal(data.stats.diagrams, 2);
+  assert.match(data.views[0].diagram, /^flowchart/);
+  assert.equal(data.views[1].mobileDiagram, manifest.views[1].diagram);
+  assert.deepEqual(data.views[0].bindings, manifest.views[0].bindings);
+  assert.equal(data.chains[0].readingView, 'overview');
+  assert.equal(data.chains[0].stages[1].codeExplanation, 'Validation runs before publication.');
+  assert.ok(!data.quality.warnings.some(warning => warning.includes(manifest.chains[0].title) && /业务结果|最终结果/.test(warning)), 'a separate unknown boundary must not erase the evidenced outcome');
+});
+
 test('conditional evidence and next checks reject empty or missing explanations', () => {
   const manifest = copy();
   manifest.chains[0].stages[0].sources = [];

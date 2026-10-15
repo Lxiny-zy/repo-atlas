@@ -15,11 +15,18 @@
 
 ### Reader experience
 
-- Prioritized purpose, business journeys and useful conclusions before relationship diagrams; added direct reading choices and expandable scope notes.
-- Replaced implementation jargon in relationship navigation with plain Chinese, expanded module cards with responsibility summaries, and made module source locations opt-in.
-- Improved desktop/mobile reading sizes, flow steps and unresolved-question callouts; conclusions now show business impact where authored.
-- Added a complete Chinese order-journey demonstration with source-backed boundaries and an authoring guide that separates business explanation from technical identifiers.
-- Added three-browser reader-journey checks for reading order, 320px/390px layouts, unresolved outcomes and evidence disclosure.
+- Organized reading around project architecture, business processes, data flows and data structures; the neighboring panel explains responsibilities, incoming/outgoing data and related objects.
+- Render authored sequence diagrams and optional narrative diagrams; retain stage navigation for manifests without a chart instead of inventing control flow.
+- Relation-generated diagrams show data flows only, without dependency/all-relations switches or duplicate overview diagrams. Legacy dependency evidence remains available to snapshot/review/context workflows and is never inferred as data delivery.
+- Added interactive ER fields and references, visible business descriptions for transfers, and moving markers along declared data-flow edges with persistent play/pause controls and module-focused motion. Reduced-motion preferences, hidden canvases, print and SVG export are handled explicitly.
+- Kept source evidence as hyperlinks and optional excerpts; code explanations remain available in structured data for AI without occupying the primary reader interface.
+- Added a responsibility table with a stacked mobile layout; module, stage and object selection remain stable across navigation and viewport changes.
+- Expanded the Chinese order example with purchase/cancellation branches and actual state transitions; unconfirmed payment and shipping remain visibly separate.
+- Updated authoring guidance and reader checks for diagrams, corresponding code, 960px/390px/320px layouts and unresolved evidence.
+- Unified report layout across diagrams and relationship details: constrained sticky readers to the screen, sized short canvases to their content, and kept notes next to their diagrams.
+- Added compact diagram/detail tabs, a compact stage selector and earlier navigation collapse; fixed header overlap, stale menu backdrops, hidden SVG selection styles and background changes when opening dialogs.
+- Added 65 layout cases per browser across 320–1920px and five visual views, plus direction, payload, ER alias, source-link and history checks.
+- Added browser checks against actual SVG geometry for motion direction, pause/resume, parallel-edge bindings, rapid navigation, zoom, mobile pane changes, reduced motion and static exports.
 
 ### Reliability and contributor workflow
 
