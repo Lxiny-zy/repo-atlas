@@ -36,6 +36,7 @@ node scripts/build.mjs <atlas.json> [--replace] [--review] [--assets-dir .repo-a
 node scripts/doctor.mjs <atlas.json> [--json] [--strict]
 node scripts/init.mjs <workspace> --source src/entry.js [--output docs/architecture/atlas.json]
 node scripts/migrate.mjs <atlas.json> --output atlas.migrated.json [--pin-evidence]
+node scripts/examples.mjs build|check|verify [atlas.json ...] [--browser chromium|firefox|webkit]
 ```
 
 validate 聚合类型、未知字段、重复 ID、无效引用、路径和证据诊断，使用 JSON Pointer 定位。`--structure-only` 跳过文件系统证据检查；`--review` 将缺失或歧义证据降为警告，路径越界仍报错。两者同时使用时结构模式优先。
@@ -43,6 +44,10 @@ validate 聚合类型、未知字段、重复 ID、无效引用、路径和证�
 validate 不重建完整目录索引，不验证 Git、图形渲染或审核绑定。build 生成正式报告时保持严格证据要求；`--review` 生成明确标注用途的临时预览。
 
 `doctor` 是只读的作者检查：除清单、路径和证据验证外，会提示没有稳定 `sources[].id`、事实没有 `evidenceBindings`、链路只有阶段顺序而没有 `transitions` 等维护风险；`--strict` 将这些提醒作为失败。`init` 生成可继续编辑的最小清单，`migrate` 在新文件中补齐稳定证据 ID，可选用当前摘录哈希固定锚点；两者都不会覆盖输入。
+
+`examples build` 重建两份内置样例；`check` 只读检查既有 HTML 的生成器、清单文件、语义清单和源码集合 SHA-256；缺失、过期或仅供复核的报告退出码为 1。`verify` 先检查新鲜度，再执行指定浏览器验证，绝不隐式修复旧报告。追加清单路径时改为处理这些清单，路径相对当前目录；内置订单样例使用 reader 验证器，其他清单使用通用 verify。浏览器依赖沿用已有验证器，不自动下载。
+
+报告指纹在 `graph-data.fingerprint` 中保存工具版本、生成器内容摘要、清单文件/语义摘要、源码集合摘要、ISO 生成时间和 `standalone` / `local-assets` 构建模式。源码摘要使用快照相同的 inventory 哈希算法，包含扫描文件和扫描范围外的证据文件；它不声明覆盖整个仓库。生成器摘要包含随工具分发的脚本、Schema、报告模板及 vendor 资源，区分同一 package 版本下的实现更新。它是新鲜度依据，不替代 delivery 完整性检查。
 
 ## 快照、差异与候选
 
@@ -68,6 +73,8 @@ node scripts/accept.mjs <atlas.next.json> --review .repo-atlas/review.json [--ou
 ```
 
 review 生成待填写的任务。审核人须填写身份说明、带时区时间及逐项决定与理由；不要修改任务描述、指纹或绑定字段。`pending`、`deferred`、`needs_changes` 都不能接受。接受前再次检查源码、候选和基线，并执行严格 build。
+
+报告和 review 共用结构质量检查。`quality-warning` 任务包括缺少入口/结果、缺少流程说明、模块未出现在关联图、不可达阶段和非结果/恢复终点。若存在 `entry` 阶段，从这些入口判断可达性；否则从零入度阶段开始。必须逐项明确批准并填写原因，或修正候选并重建复核单；不能删除警告任务以绕过接受检查。已批准的结构警告仍在报告中显示。
 
 accept 原子发布新的版本目录；失败时清理暂存目录。复核记录是本地声明，不是身份认证。
 

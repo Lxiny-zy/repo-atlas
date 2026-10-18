@@ -30,6 +30,16 @@ Markers move along data-flow arrows with play/pause controls. Selecting a module
 
 The [reader-experience guide](analysis-guide.md#面向读者的表达) describes how to write business-oriented titles, stages and conclusions while keeping function names and file paths in evidence details.
 
+Rebuild and check examples after updating the tool:
+
+```sh
+npm run examples:build
+npm run examples:check
+npm run examples:verify -- --browser chromium
+```
+
+`examples:check` reads current generator, manifest and source inventory fingerprints and fails for stale or missing reports. `examples:verify` checks freshness before browser validation and never rebuilds implicitly. The footer and About dialog show generator identity, manifest identity and generation time. CI publishes rebuildable synthetic examples with browser artifacts.
+
 For the complete multi-chain example:
 
 ```sh
@@ -103,6 +113,8 @@ node scripts/review.mjs path/to/atlas.next.json
 ```
 
 After actually reviewing the tasks, fill in `reviewer`, timezone-qualified `reviewedAt`, and every task's `decision` and `note` in `.repo-atlas/review.json`. Acceptance requires explicit approval of every item:
+
+Structural report warnings create `quality-warning` review tasks. Repair them and prepare a new review, or explicitly approve each with a reason. Unresolved evidence still blocks acceptance.
 
 ```sh
 node scripts/accept.mjs path/to/atlas.next.json --review .repo-atlas/review.json

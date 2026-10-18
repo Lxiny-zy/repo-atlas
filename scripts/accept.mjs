@@ -9,6 +9,7 @@ import { reviewState, validateReview, entityRows } from './review-lib.mjs';
 import { redactValue, redactionValues } from './evidence-lib.mjs';
 import { collectSourceRows } from './snapshot-lib.mjs';
 import { relocateSchema } from './manifest-lib.mjs';
+import { bindPublishedManifest } from './provenance-lib.mjs';
 
 const options = parseOptions(process.argv.slice(2), {"value":["review","output-dir","assets-dir","source-bundle"],"required":["review"],"usage":"Usage: node scripts/accept.mjs <atlas.next.json> --review review.json [--output-dir accepted/version] [--assets-dir assets] [--source-bundle sources]"});
 const bundle = await loadManifest(options._[0]);
@@ -57,13 +58,16 @@ try {
   relocateSchema(accepted, stageManifest, resolve(output, 'atlas.json'));
   await atomicWrite(bundle.workspace, stageManifest, writeJson(accepted));
   const raw = writeJson(accepted);
+  const reportPath = resolve(staging, 'report.html');
+  // Workspace/output locations are materialized above after the staging build;
+  // bind the report to the exact manifest bytes published with the delivery.
+  await atomicWrite(bundle.workspace, reportPath, bindPublishedManifest(await readFile(reportPath, 'utf8'), raw), { extension: '.html' });
   const snapshot = await createSnapshot({ manifest: accepted, raw, workspace: bundle.workspace, manifestPath: resolve(output, 'atlas.json') });
   if (snapshot.inventorySha256 !== state.current.inventorySha256) throw new Error('Source drift during acceptance');
   await atomicWrite(bundle.workspace, resolve(staging, 'snapshot.json'), writeJson(snapshot), { replace: false });
   const secrets = redactionValues(collectSourceRows(bundle.manifest));
   const receipt = redactValue({ ...accepted.review, purpose: 'atlas-acceptance', schemaVersion: 1, manifestSha256: hashText(raw), snapshotSha256: hashText(writeJson(snapshot)), items: review.items }, secrets);
   await atomicWrite(bundle.workspace, resolve(staging, 'review.json'), writeJson(receipt), { replace: false });
-  const reportPath = resolve(staging, 'report.html');
   const reportBytes = await readFile(reportPath);
   const bundledFiles = [];
   const collectBundleFiles = async directory => {

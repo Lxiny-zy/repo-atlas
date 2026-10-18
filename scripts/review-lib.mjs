@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { assertOutputInside, createSnapshot, analysisManifestHash, hashText, snapshotHash, buildSummaryIndex } from './snapshot-lib.mjs';
 import { collectSourceRows } from './snapshot-lib.mjs';
 import { redactValue, redactionValues } from './evidence-lib.mjs';
+import { reviewQualityWarnings } from './quality-lib.mjs';
 
 export function entityRows(manifest) {
   const rows = [];
@@ -41,6 +42,7 @@ export function reviewTasks(bundle, state) {
   for (const [key, row] of Object.entries(state.current.evidence)) if (!row.resolved) add(`evidence:${key}`, 'unresolved-evidence', { key, path: row.path, reason: row.staleReason });
   for (const row of bundle.manifest.update?.staleEvidence || []) if (!state.current.evidence[row.key]) add(`removed:${row.key}`, 'removed-evidence', row);
   for (const row of bundle.manifest.update?.unmappedChanges || []) add(`file:${row.path}`, 'unmapped-change', row);
+  for (const warning of reviewQualityWarnings(bundle.manifest)) add(`quality:${warning.code}:${warning.entity}`, 'quality-warning', warning);
   add('scope', 'scope', { scope: bundle.manifest.project?.scope, boundary: bundle.manifest.project?.boundary, reasons: state.delta.summary?.fullReanalysisReasons || [] });
   return redactValue([...tasks.values()], redactionValues(collectSourceRows(bundle.manifest)));
 }

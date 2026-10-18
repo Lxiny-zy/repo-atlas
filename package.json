@@ -32,6 +32,9 @@
     "init": "node scripts/init.mjs",
     "doctor": "node scripts/doctor.mjs",
     "migrate": "node scripts/migrate.mjs",
+    "examples:build": "node scripts/examples.mjs build",
+    "examples:check": "node scripts/examples.mjs check",
+    "examples:verify": "node scripts/examples.mjs verify",
     "benchmark": "node scripts/benchmark.mjs",
     "test": "node scripts/run-tests.mjs"
   },

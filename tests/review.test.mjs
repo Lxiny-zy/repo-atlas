@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { copyFixture } from '../scripts/fixture-lib.mjs';
+import { checkReportFreshness } from '../scripts/provenance-lib.mjs';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const json = async (dir, path) => JSON.parse(await readFile(resolve(dir, path), 'utf8'));
 const put = (dir, path, value) => writeFile(resolve(dir, path), JSON.stringify(value, null, 2));
@@ -73,6 +74,7 @@ test('reviewed release contains report, receipt and usable baseline without repl
   const data = JSON.parse(report.match(/<script id="graph-data" type="application\/json">([\s\S]*?)<\/script>/)[1]);
   assert.equal(data.review.reviewer, accepted.review.reviewer);
   assert.equal(data.reviewMode, false);
+  assert.equal((await checkReportFreshness(resolve(versionDir, 'atlas.json'))).fresh, true, 'report fingerprint must bind the final published manifest, not the staging path');
   assert.equal(await readFile(resolve(dir, 'atlas.json'), 'utf8'), original);
   assert.equal(await readFile(resolve(dir, '.repo-atlas/snapshot.json'), 'utf8'), baseline);
   run(dir, 'delta.mjs', ['.repo-atlas/accepted/test/atlas.json', '--from', '.repo-atlas/accepted/test/snapshot.json']);
@@ -114,6 +116,27 @@ test('review task tampering and candidate drift are rejected', async t => {
   await rm(resolve(dir, '.repo-atlas/review.json')); prepare(dir); await approve(dir);
   const candidate = await json(dir, 'atlas.next.json'); candidate.modules[0].summary += ' edited after review'; await put(dir, 'atlas.next.json', candidate);
   accept(dir, /Review drift/);
+});
+
+test('quality warnings share report checks and require explicit decisions before acceptance', async t => {
+  const dir = await fixture(t);
+  const candidate = await json(dir, 'atlas.next.json');
+  const chain = candidate.chains[0];
+  chain.transitions = [{ id: 'cycle', from: 'validation', to: 'validation', label: 'Review synthetic loop', status: 'confirmed', sources: chain.stages[1].sources }];
+  await put(dir, 'atlas.next.json', candidate);
+  run(dir, 'build.mjs', ['atlas.next.json']);
+  const data = JSON.parse((await readFile(resolve(dir, 'report.html'), 'utf8')).match(/<script id="graph-data" type="application\/json">([\s\S]*?)<\/script>/)[1]);
+  prepare(dir);
+  const review = await approve(dir);
+  const tasks = review.items.filter(item => item.kind === 'quality-warning');
+  assert.deepEqual(tasks.map(item => item.detail), data.quality.checks);
+  assert.ok(tasks.some(item => item.detail.code === 'unreachable-stage'));
+  assert.ok(tasks.some(item => item.detail.code === 'missing-outcome'));
+  review.items.find(item => item.kind === 'quality-warning').decision = 'pending';
+  await put(dir, '.repo-atlas/review.json', review);
+  accept(dir, /Review incomplete: quality:/);
+  await assert.rejects(readFile(resolve(dir, '.repo-atlas/accepted/test/atlas.json')), /ENOENT/);
+  await approve(dir); accept(dir);
 });
 
 test('source drift blocks acceptance and invalidates accepted report rebuilds', async t => {

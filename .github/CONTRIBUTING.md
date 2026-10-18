@@ -43,6 +43,8 @@ node scripts/build.mjs examples/order-journey/atlas.json
 node scripts/verify-reader.mjs examples/order-journey/report.html --browser chromium
 ```
 
+Or run `npm run examples:build`, `npm run examples:check`, and `npm run examples:verify -- --browser chromium`. Verification fails for stale reports without overwriting them. CI rebuilds and checks examples before exercising each browser, and includes generated HTML and synthetic sources in downloadable artifacts. Report About dialogs expose package version, generator content hash, manifest and inventory hashes, build mode and generation time.
+
 Review the homepage and a complete flow without opening code: purpose, inputs, outcomes and unknowns should remain understandable. Follow the [reader-experience guide](../docs/analysis-guide.md#面向读者的表达). The demonstration screenshot used by the READMEs lives at `examples/order-journey/desktop.png`; update it deliberately when the displayed design changes.
 
 ## Performance changes

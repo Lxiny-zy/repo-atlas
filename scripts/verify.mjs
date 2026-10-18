@@ -69,6 +69,18 @@ try {
   await openReport(page);
   await page.waitForFunction(() => window.repoAtlas && ['ready', 'error'].includes(document.getElementById('graph-viewport').dataset.renderState));
   const data = await page.evaluate(() => window.repoAtlas.data);
+  if (data.fingerprint) {
+    for (const key of ['toolSha256', 'manifestSha256', 'analysisManifestSha256', 'sourceSha256']) assert.match(data.fingerprint[key], /^[a-f0-9]{64}$/, key);
+    assert.ok(Number.isFinite(Date.parse(data.fingerprint.generatedAt)));
+    await page.locator('#about-button').click();
+    for (const key of ['toolVersion', 'toolSha256', 'manifestSha256', 'analysisManifestSha256', 'sourceSha256', 'generatedAt']) assert.ok((await page.locator('#dialog-body').innerText()).includes(data.fingerprint[key]), key);
+    await page.setViewportSize({ width: 320, height: 740 });
+    assert.ok(await page.evaluate(() => document.getElementById('detail-dialog').scrollWidth <= document.getElementById('detail-dialog').clientWidth + 1), 'version fingerprints must wrap on mobile');
+    await page.locator('#close-dialog').click();
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    assert.ok((await page.locator('#footer-baseline').innerText()).includes(data.fingerprint.toolVersion));
+    result.checks.push('report version / generator, manifest and source fingerprints / generation time / 320px metadata');
+  }
   if (data.reviewMode) {
     assert.ok(await page.locator('#review-banner').isVisible());
     assert.ok((await page.locator('#review-banner').innerText()).includes('仅供复核'));

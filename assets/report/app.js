@@ -220,7 +220,8 @@
       ${data.scanGroups.map(group => `<div class="baseline-row"><strong>${esc(group.name)} / ${group.count} 文件</strong><span>${group.paths.map(esc).join('、')} / ${group.extensions.map(esc).join(' ')}<br>排除：${group.exclude.map(esc).join('、')}</span></div>`).join('')}
       <h4>验证边界</h4><p>${esc(data.project.boundary)}</p>
       <h4>工作区差异</h4><p>${data.repositories.length ? data.repositories.filter(repo => repo.dirty.length).map(repo => `${esc(repo.name)}：${repo.dirty.map(esc).join('；')}`).join('<br>') || '基线读取时未发现已跟踪文件的未提交改动。' : '未读取 Git 工作区状态。'}<br>Git 差异只统计已跟踪文件；新增报告文件不计入该摘要。</p>
-      <h4>图表与文件</h4><p>${esc(data.renderer)} 与 Lucide 0.468.0 已内嵌，均不在打开时请求 CDN。代码摘录保存在本文中，源码链接使用相对路径。</p>`);
+      <h4>图表与文件</h4><p>${esc(data.renderer)} 与 Lucide 0.468.0 已内嵌，均不在打开时请求 CDN。代码摘录保存在本文中，源码链接使用相对路径。</p>
+      ${data.fingerprint ? `<h4>报告版本与生成时间</h4><dl class="report-fingerprint"><dt>工具</dt><dd>repo-atlas ${esc(data.fingerprint.toolVersion)}</dd><dt>生成时间</dt><dd>${esc(data.fingerprint.generatedAt)}</dd><dt>构建模式</dt><dd>${data.fingerprint.mode === 'local-assets' ? '本地外置资源' : '单文件'}${data.fingerprint.reviewMode ? ' · 仅供复核' : ''}</dd>${[['toolSha256', '生成器'], ['manifestSha256', '清单文件'], ['analysisManifestSha256', '语义清单'], ['sourceSha256', '源码文件集合']].map(([key, label]) => `<dt>${label} SHA-256</dt><dd><code>${esc(data.fingerprint[key])}</code></dd>`).join('')}</dl><p>指纹标识生成时的文件集合；离线报告不会自动检查之后的源码变化。</p>` : ''}`);
   }
 
   function showUpdate() {
@@ -1474,7 +1475,7 @@
   $('open-findings').disabled = !data.findings.length;
   $('open-coverage').disabled = !data.coverage.length;
   $('open-chains').disabled = !data.chains.length;
-  $('footer-baseline').textContent = data.repositories.map(repo => repo.name + ' ' + repo.commit).join(' / ');
+  $('footer-baseline').textContent = data.fingerprint ? `repo-atlas ${data.fingerprint.toolVersion} · 生成器 ${data.fingerprint.toolSha256.slice(0, 8)} · 清单 ${data.fingerprint.analysisManifestSha256.slice(0, 8)} · 生成 ${data.fingerprint.generatedAt}` : data.repositories.map(repo => repo.name + ' ' + repo.commit).join(' / ');
   $('footer-boundary').textContent = data.project.boundary;
   renderChains();
   renderQuality();
