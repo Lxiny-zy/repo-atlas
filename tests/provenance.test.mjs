@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile, rm, appendFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, rm, appendFile, mkdir, realpath } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -61,7 +61,7 @@ test('source fingerprint covers uncited inventory files and evidence outside dec
   result = run(dir, 'build', 'atlas.json', '--replace'); assert.equal(result.status, 0, result.stderr);
   let fingerprint = embeddedReportData(await readFile(resolve(dir, 'report.html'), 'utf8')).fingerprint;
   assert.equal(fingerprint.sourceFiles, 2, 'evidence is included without fileGroups');
-  assert.equal(fingerprint.sourceSha256, inventoryHash(await collectFileInventory({ manifest, workspace: dir })));
+  assert.equal(fingerprint.sourceSha256, inventoryHash(await collectFileInventory({ manifest, workspace: await realpath(dir) })));
   assert.equal(fingerprint.analysisManifestSha256, analysisManifestHash(manifest));
   await rm(resolve(dir, 'src/order.js'));
   result = run(dir, 'build', 'atlas.json', '--replace', '--review'); assert.equal(result.status, 0, result.stderr);
