@@ -41,6 +41,15 @@ try {
   await page.goto(pathToFileURL(report).href);
   if (engine === 'webkit') await context.setOffline(true);
   await page.waitForFunction(() => window.repoAtlas);
+  const provenance = await page.evaluate(() => window.repoAtlas.data.fingerprint);
+  if (provenance) {
+    await page.locator('#about-button').click();
+    const metadata = await page.locator('#dialog-body').innerText();
+    for (const field of ['toolVersion', 'generatedAt', 'toolSha256', 'manifestSha256', 'analysisManifestSha256', 'sourceSha256']) assert.ok(metadata.includes(provenance[field]), field);
+    await page.locator('#close-dialog').press('Enter');
+    assert.ok((await page.locator('#footer-baseline').innerText()).includes(provenance.analysisManifestSha256.slice(0, 8)));
+    result.checks.push('visible version fingerprints and generation time; keyboard dismissal returns to report');
+  }
   await go('overview');
   await noCode();
   assert.equal(await page.locator('#graph-stage [data-module]').count(), 3);

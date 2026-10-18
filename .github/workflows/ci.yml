@@ -32,6 +32,8 @@ jobs:
       - run: npm run check
       - run: npm test
       - run: npm run verify:schema
+      - run: npm run examples:build
+      - run: npm run examples:check
   browser:
     timeout-minutes: 20
     strategy:
@@ -47,13 +49,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps ${{ matrix.browser }}
-      - run: node scripts/build.mjs tests/fixtures/multi-chain/atlas.json
-      - run: node scripts/verify.mjs tests/fixtures/multi-chain/report.html --browser ${{ matrix.browser }}
+      - run: npm run examples:build
+      - run: npm run examples:check
+      - run: npm run examples:verify -- --browser ${{ matrix.browser }}
       - run: node scripts/prepare-review-fixture.mjs tmp-review-ci
       - run: node scripts/verify.mjs tmp-review-ci/unresolved/report.html --browser ${{ matrix.browser }}
       - run: node scripts/verify.mjs tmp-review-ci/accepted/.repo-atlas/accepted/fixture/report.html --browser ${{ matrix.browser }}
-      - run: node scripts/build.mjs examples/order-journey/atlas.json
-      - run: node scripts/verify-reader.mjs examples/order-journey/report.html --browser ${{ matrix.browser }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
@@ -65,6 +66,12 @@ jobs:
             tmp-review-ci/unresolved/report.verification/
             tmp-review-ci/accepted/.repo-atlas/accepted/fixture/report.verification/
             examples/order-journey/reader.verification/
+            examples/order-journey/report.html
+            examples/order-journey/atlas.json
+            examples/order-journey/src/
+            tests/fixtures/multi-chain/report.html
+            tests/fixtures/multi-chain/atlas.json
+            tests/fixtures/multi-chain/src/
 
   quality-gate:
     name: Quality gate

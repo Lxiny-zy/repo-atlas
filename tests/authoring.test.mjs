@@ -106,10 +106,11 @@ test('external assets are reused immutably and bundled source links survive relo
   const data = JSON.parse(html.match(/<script id="graph-data" type="application\/json">([\s\S]*?)<\/script>/)[1]);
   assert.deepEqual(await readFile(resolve(dir, data.sourceBase, 'src/order.js')), await readFile(resolve(dir, 'src/order.js')));
   run(dir, 'build', ['atlas.json', '--assets-dir', '.repo-atlas/assets', '--source-bundle', '.repo-atlas/sources', '--replace']);
+  const lastSuccessfulReport = await readFile(resolve(dir, 'report.html'), 'utf8');
   const asset = result.bundleFiles.find(path => path.endsWith('app.js'));
   await appendFile(asset, '\n// corrupt immutable asset');
   run(dir, 'build', ['atlas.json', '--assets-dir', '.repo-atlas/assets', '--replace'], 1);
-  assert.equal(await readFile(resolve(dir, 'report.html'), 'utf8'), html);
+  assert.equal(await readFile(resolve(dir, 'report.html'), 'utf8'), lastSuccessfulReport);
   run(dir, 'build', ['atlas.json', '--assets-dir', '../escape', '--replace'], 1);
 });
 

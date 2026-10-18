@@ -159,6 +159,8 @@ node scripts/verify-schema.mjs --ajv tmp-schema-validation/node_modules/ajv/dist
 
 清单新增顶层 `review` 保存审核人、审核时间、接受时间、版本及绑定摘要；它属于运行期记录，不参与语义清单哈希。普通 build 重建带 review 的正式版本时会检查源码与语义是否仍匹配；变化后需重新进入增量复核。回执保留逐项决定及说明，是本地审核声明与一致性记录，不是身份认证或数字签名。
 
+报告内嵌 `fingerprint` 是构建元数据，不写回清单，也不参与语义清单哈希。`sourceSha256` 与 snapshot 的 `inventorySha256` 使用同一算法。accept 会在发布前把报告指纹绑定到最终 `atlas.json` 字节，避免暂存路径造成清单哈希不一致。review 单中的 `quality-warning` 任务来自与报告共用的质量检查，和其他任务一样要求明确决定及说明。
+
 未解析证据始终阻止接受，即使其任务被填为 approved。可以修复锚点，或者明确移除不成立的引用并调整结论，然后重新准备复核。`build.mjs --review` 可生成检查用报告：保留缺失/歧义原因，显示“仅供复核”，不生成假的摘录或行号；受影响阶段的 covered/partial 转为 unknown，confirmed 发现项转为 unverified，原声明保留为 `declaredStatus`。这些是报告模型的临时状态，不写回原清单。路径越界等错误不会因 review 模式被忽略。
 
 ## 离线定位链接

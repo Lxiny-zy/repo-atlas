@@ -30,6 +30,16 @@ node scripts/build.mjs examples/order-journey/atlas.json
 
 编写自己的报告前，可参考[读者体验与表达约束](docs/analysis-guide.md#面向读者的表达)：用业务名称组织标题与阶段，函数、路径和字段保留在定位细节中。
 
+更新工具后重建和检查样例：
+
+```sh
+npm run examples:build
+npm run examples:check
+npm run examples:verify -- --browser chromium
+```
+
+`examples:check` 只读检查生成器、清单和源码文件集合指纹，过期时返回失败；`examples:verify` 在新鲜度检查通过后执行浏览器验证，不自动重建。报告页脚显示生成器与清单短哈希，点击“基线与证据范围”可查看完整指纹、构建模式和生成时间。CI 会重建、检查并提供可下载的样例报告与合成源码。
+
 想体验完整的多链路报告：
 
 ```sh
@@ -106,6 +116,8 @@ node scripts/review.mjs path/to/atlas.next.json
 ```
 
 实际复核后填写 `.repo-atlas/review.json` 的 `reviewer`、带时区的 `reviewedAt`，以及每项 `decision` 和 `note`。全部明确批准后才能接受：
+
+报告中的结构质量警告也会生成 `quality-warning` 任务，例如缺少业务结果、阶段不可达或异常终点；每项都必须修正后重新准备复核，或明确批准并说明保留原因。缺失证据始终不能接受。
 
 ```sh
 node scripts/accept.mjs path/to/atlas.next.json --review .repo-atlas/review.json

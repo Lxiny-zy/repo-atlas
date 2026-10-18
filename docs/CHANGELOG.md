@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added reproducible example build/check/verify commands and CI freshness checks; browser artifacts now include generated example HTML with its manifest and synthetic sources.
+- Added visible report provenance: package version, generator content hash, raw/semantic manifest hashes, source inventory hash, build mode and generation timestamp. Accepted reports bind the final published manifest rather than staging paths.
+- Shared structural quality checks between report warnings and explicit review tasks. Pending quality warnings now block acceptance; approved warnings remain visible in the report.
+
 - Simplified the repository root: consolidated reference documents under docs/, moved community policies into .github/, and removed optional editor-specific configuration. Runtime entry points remain unchanged.
 
 - Removed dated review artifacts and redundant navigation/prompt documents from the working tree; retained history in Git and consolidated current writing/maintenance guidance. Regression tests and report examples remain available.

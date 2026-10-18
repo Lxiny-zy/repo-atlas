@@ -29,6 +29,8 @@ flowchart LR
 | Acceptance | `scripts/review-lib.mjs`, `scripts/review.mjs`, `scripts/accept.mjs` | Task bindings, explicit decisions and new version publication |
 | Delivery inspection | `scripts/compare.mjs`, `scripts/check-delivery.mjs` | Semantic knowledge changes and bound artifact integrity |
 | Report | `scripts/build.mjs`, `assets/report/` | Compile the manifest and vendor assets into one offline document |
+| Authoring quality | `scripts/quality-lib.mjs` | One set of structural checks shared by report warnings and mandatory review tasks |
+| Provenance and examples | `scripts/provenance-lib.mjs`, `scripts/examples.mjs` | Generator/manifest/source fingerprints, read-only freshness checks and reproducible example builds |
 
 ## Invariants to preserve
 

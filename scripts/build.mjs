@@ -4,14 +4,16 @@ import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
 import { createReadStream } from 'node:fs';
-import { normalizeSource, sourceReader, resolveEvidence, redactionValues, redactValue, hashBytes } from './evidence-lib.mjs';
+import { normalizeSource, sourceReader, resolveEvidence, redactionValues, redactValue, hashBytes, hashText } from './evidence-lib.mjs';
 import { planOutput, atomicWrite } from './io-lib.mjs';
-import { collectSourceRows, createSnapshot, analysisManifestHash, moduleRelationEdges } from './snapshot-lib.mjs';
+import { collectSourceRows, createSnapshot, analysisManifestHash, moduleRelationEdges, collectFileInventory, inventoryHash } from './snapshot-lib.mjs';
 import { assertManifest } from './manifest-lib.mjs';
 import { parseOptions } from './cli-lib.mjs';
 import { relationVariants, chainDiagram } from './relation-lib.mjs';
 import { publishFiles, relativeUrl } from './report-bundle-lib.mjs';
 import { assertOutputInside } from './io-lib.mjs';
+import { reviewQualityWarnings } from './quality-lib.mjs';
+import { generatorFingerprint } from './provenance-lib.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const options = parseOptions(process.argv.slice(2), { boolean: ['replace', 'review'], value: ['assets-dir', 'source-bundle'], usage: 'Usage: node scripts/build.mjs <atlas.json> [--replace] [--review] [--assets-dir .repo-atlas/assets] [--source-bundle .repo-atlas/sources]' });
@@ -19,7 +21,8 @@ const input = options._[0];
 const replace = Boolean(options.replace);
 const reviewMode = Boolean(options.review);
 const manifestPath = resolve(input);
-const manifest = JSON.parse((await readFile(manifestPath, 'utf8')).replace(/^\uFEFF/, ''));
+const manifestRaw = await readFile(manifestPath, 'utf8');
+const manifest = JSON.parse(manifestRaw.replace(/^\uFEFF/, ''));
 assertManifest(manifest);
 const requireText = (value, context) => {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${context} must be a nonempty string`);
@@ -56,10 +59,15 @@ async function checkedPath(value) {
 const read = sourceReader(checkedPath);
 const secrets = redactionValues(collectSourceRows(manifest));
 let unresolvedCount = 0;
+const evidenceHashes = new Map();
 async function evidence(spec) {
   const source = normalizeSource(spec);
   let result;
-  try { result = resolveEvidence((await read(source.path)).document, { ...source, redact: secrets }); }
+  try {
+    const file = await read(source.path);
+    evidenceHashes.set(slash(relative(workspace, file.full)), file.sha256);
+    result = resolveEvidence(file.document, { ...source, redact: secrets });
+  }
   catch (error) {
     if (!reviewMode || !['ENOENT', 'ENOTDIR'].includes(error.code)) throw error;
     result = { resolved: false, reason: 'Source file missing' };
@@ -221,7 +229,6 @@ for (const chain of chains) {
 }
 if (!views.length && !chains.length) throw new Error('At least one view or business chain is required');
 // An unannotated diagram remains visible. Never infer business stages from arrows.
-const incompleteNarratives = views.filter(view => ['sequence', 'narrative'].includes(view.kind) && !view.chainIds?.length && !view.notes.length);
 const evidenceRows = async (rows, kind) => Promise.all(requireList(rows || [], kind).map(async row => {
   const identity = kind === 'routes' ? row.prefix : row.name;
   requireText(identity, `${kind} identifier`);
@@ -317,30 +324,13 @@ for (const repo of requireList(manifest.repositories || [], 'repositories')) {
 }
 views.push({ id: 'catalog', title: '证据与覆盖索引', subtitle: '集中查看发现项、分析覆盖、对象、入口、配置和源码文件。', icon: 'list-tree', group: '证据', tags: ['可追溯索引'], modules: modules.map(module => module.id), notes: [['分析范围', project.scope], ['验证边界', project.boundary]], sources: [] });
 const diagramViews = views.filter(view => view.diagram);
-const qualityWarnings = [];
-for (const view of incompleteNarratives) qualityWarnings.push(`流程“${view.title}”缺少文字说明；请补充业务阶段或视图备注。`);
-if (modules.length >= 8 && !chains.length) qualityWarnings.push('模块数量较多但没有登记业务链路；复杂项目容易退化为一张总览图。');
-for (const chain of chains) {
-  if (!chain.stages.some(stage => ['entry', 'authorization', 'validation', 'custom'].includes(stage.kind))) qualityWarnings.push(`“${chain.title}”尚未登记入口或前置条件，还需要确认由谁发起、需要满足哪些条件。`);
-  if (!chain.stages.some(stage => ['outcome', 'recovery', 'custom'].includes(stage.kind))) qualityWarnings.push(`“${chain.title}”尚未登记业务结果或异常恢复，后续处理还需要补充确认。`);
-  const linkedViews = chain.views.map(id => views.find(view => view.id === id)).filter(Boolean);
-  const linkedModules = new Set(linkedViews.flatMap(view => view.modules));
-  for (const moduleId of chain.modules) if (linkedViews.length && !linkedModules.has(moduleId)) qualityWarnings.push(`“${chain.title}”涉及的“${modules.find(module => module.id === moduleId)?.name || '相关环节'}”尚未出现在配套关系图中。`);
-  if (chain.transitions?.length) {
-    const outgoing = new Map(chain.stages.map(stage => [stage.id, []]));
-    const incoming = new Map(chain.stages.map(stage => [stage.id, 0]));
-    for (const transition of chain.transitions) {
-      outgoing.get(transition.from)?.push(transition.to);
-      incoming.set(transition.to, (incoming.get(transition.to) || 0) + 1);
-    }
-    const roots = chain.stages.filter(stage => stage.kind === 'entry' || incoming.get(stage.id) === 0).map(stage => stage.id);
-    const reachable = new Set(roots), queue = [...roots];
-    for (let index = 0; index < queue.length; index++) for (const next of outgoing.get(queue[index]) || []) if (!reachable.has(next)) { reachable.add(next); queue.push(next); }
-    for (const stage of chain.stages) if (!reachable.has(stage.id)) qualityWarnings.push(`“${chain.title}”的阶段“${stage.label}”在 transitions 中不可达，需要确认入口或转移。`);
-    for (const stage of chain.stages) if (!(outgoing.get(stage.id) || []).length && !['outcome', 'recovery'].includes(stage.kind)) qualityWarnings.push(`“${chain.title}”的终止阶段“${stage.label}”未标记为结果或恢复阶段。`);
-  }
-}
-const quality = { level: qualityWarnings.length ? 'review' : 'ready', warnings: qualityWarnings };
+const inventory = await collectFileInventory({ manifest, workspace, allowMissingSources: reviewMode });
+for (const [path, sha256] of evidenceHashes) if (inventory[path]?.sha256 !== sha256) throw new Error('Source drift while fingerprinting the report');
+const generator = await generatorFingerprint();
+const generatedAt = new Date().toISOString();
+const qualityChecks = reviewQualityWarnings(manifest);
+const qualityWarnings = qualityChecks.map(item => item.message);
+const quality = { level: qualityWarnings.length ? 'review' : 'ready', warnings: qualityWarnings, checks: qualityChecks };
 if (unresolvedCount) { quality.level = 'review'; quality.warnings.push(`${unresolvedCount} 处证据未解析；此报告仅用于复核。`); }
 function markUnresolved(row) {
   if (!row.sources.some(source => source.state === 'unresolved')) return;
@@ -379,9 +369,10 @@ const evidenceCount = [
 ].reduce((sum, item) => sum + (item.sources?.length || 0), 0);
 const data = {
   project: { title: project.title, subtitle: project.subtitle || 'REPOSITORY ATLAS', summary: project.summary || '', scope: project.scope, boundary: project.boundary },
-  date: new Date().toISOString().slice(0, 10),
+  date: generatedAt.slice(0, 10),
   reviewMode, unresolvedCount, review: manifest.review || null,
   renderer: 'Mermaid 10.9.3', moduleEdges: Object.fromEntries([...moduleRelationEdges(manifest)].map(([id, targets]) => [id, [...targets]])), modules, relations, views, chains, findings, coverage, tables, routes, flags, files, repositories, scanGroups, quality,
+  fingerprint: { schemaVersion: 1, toolVersion: generator.version, toolSha256: generator.sha256, manifestSha256: hashText(manifestRaw), analysisManifestSha256: analysisManifestHash(manifest), sourceSha256: inventoryHash(inventory), sourceFiles: Object.keys(inventory).length, generatedAt, mode: assetDirectory ? 'local-assets' : 'standalone', reviewMode, sourceBundle: Boolean(sourceDirectory) },
   update: manifest.update && typeof manifest.update === 'object' ? {
     mode: manifest.update.mode || 'incremental-candidate',
     generatedAt: manifest.update.generatedAt || null,

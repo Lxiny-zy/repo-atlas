@@ -96,6 +96,8 @@ node <skill-dir>/scripts/context.mjs <project-docs>/atlas.json --changed-only
 
 需要保存正式复核记录时，运行 `review.mjs <atlas.next.json>`，实际核对后填写 reviewer、reviewedAt 和每项 decision/note，再运行 `accept.mjs <atlas.next.json> --review .repo-atlas/review.json`。不得为通过校验伪造审核结论。接受命令检查版本和正式构建，生成新版本目录，保留原始输入；输出的清单、报告、基线和回执可作为下一轮起点。候选或源码变化后必须重新准备复核。
 
+结构质量警告也进入复核单。对 `quality-warning` 应修正候选并重新准备复核，或根据证据明确批准并说明为何保留；不能跳过警告任务。未解析证据仍禁止接受。
+
 缺失或歧义证据不能接受为正式交付。排查时使用 `build.mjs <atlas.next.json> --review`，报告显式显示未解析原因，降低对应临时覆盖/可信度状态，不冒用旧摘录。视图、阶段及证据可以复制 # 定位链接；移动离线报告时保留片段。
 
 `context.mjs` 生成 `.repo-atlas/context.json`，默认只携带 delta 中的变更文件、Git hunk、受影响链路/阶段、旧新证据摘录和一跳上下游关系；快照内的轻量摘要索引提供变更前摘要，证据摘录继续遵守 `redact`。影响路径写入 `delta.impact.paths`，上下文和报告使用同一套数据流/依赖回退规则。使用 `--stale-only` 只处理失效证据，使用 `--previous-manifest` 显式覆盖旧清单摘要。该文件是模型复核输入，不替代完整 `atlas.json` 或快照。
@@ -115,6 +117,8 @@ node <skill-dir>/scripts/verify.mjs <report.html> --playwright <installed-playwr
 验证脚本在断网 Chromium 中遍历实际图表和移动变体，检查渲染、页面错误、缩放拖动、证据弹窗、全文检索、索引过滤、导出、导航和移动端溢出，并写出截图和结果。Playwright 可通过显式路径、`REPO_ATLAS_PLAYWRIGHT_PATH` 或已安装包解析；脚本不下载浏览器或依赖。缺少环境时优先使用现有浏览器能力，无法执行就报告未验证项。
 
 人工检查总览、数据流图、关键流程、ER 图和手机截图。确认模块关系只展示数据流向，点击模块能看清职责与输入输出，相关节点和连线同步突出；点击数据对象能看到字段和关联；返回或调整窗口后仍保留位置。源码链接可追溯，但主界面不依靠阅读源码才能理解。核对请求与返回的箭头、分支、未确认项、字体与裁切。浏览器通过只证明报告可用，不能替代对业务结论的复核。
+
+查看旧报告时先核对“基线与证据范围”中的生成时间和指纹；指纹只描述生成时的输入，不表示当前源码仍一致。维护本技能的展示样例时运行 `npm run examples:build`、`npm run examples:check` 和 `npm run examples:verify -- --browser chromium`；check 和 verify 不会自动重建过期报告。
 
 可用 `--browser chromium|firefox|webkit` 指定验证引擎；分别报告实际运行结果。WebKit 会在阻断 HTTP 请求的前提下先加载本地文件，再启用离线模拟，此差异会记入结果。不要将引擎验证描述为真实 Safari/iPhone 测试。
 
