@@ -80,6 +80,18 @@ test('reviewed release contains report, receipt and usable baseline without repl
   assert.equal((await json(dir, '.repo-atlas/delta.json')).summary.changedFiles, 0);
 });
 
+test('accepted release can carry immutable external assets and source files in its delivery receipt', async t => {
+  const dir = await fixture(t); prepare(dir); await approve(dir);
+  run(dir, 'accept.mjs', ['atlas.next.json', '--review', '.repo-atlas/review.json', '--output-dir', '.repo-atlas/accepted/bundled', '--assets-dir', 'assets', '--source-bundle', 'sources']);
+  const root = resolve(dir, '.repo-atlas/accepted/bundled');
+  const delivery = await json(dir, '.repo-atlas/accepted/bundled/delivery.json');
+  assert.ok(delivery.bundles.length >= 6);
+  run(dir, 'check-delivery.mjs', ['.repo-atlas/accepted/bundled']);
+  for (const item of delivery.bundles) assert.ok(await readFile(resolve(root, item.path)));
+  const report = await readFile(resolve(root, 'report.html'), 'utf8');
+  assert.match(report, /<link rel="stylesheet"/);
+});
+
 test('accept requires complete reviewed decisions and never reuses an existing release directory', async t => {
   const dir = await fixture(t); prepare(dir);
   accept(dir, /requires reviewer/);

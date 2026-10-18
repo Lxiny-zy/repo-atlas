@@ -122,7 +122,7 @@ node scripts/verify-schema.mjs --ajv tmp-schema-validation/node_modules/ajv/dist
 { "path": "src/store.ts", "match": "export async function saveOrder(", "length": 14, "occurrence": 1, "redact": ["需要遮盖的字面值"] }
 ```
 
-`match` 是字面文本，必须实际出现；重复出现时必须提供从 1 起算的 occurrence，优先选择唯一锚点。`length` 默认 8，范围为 1–60 行。生成器写出真实行号，不接受手填摘录冒充源码。可选 `id` 遵循模块 id 格式，在同一实体内唯一；提供后用它替代 sources 数组下标作为稳定证据身份。
+`match` 是字面文本，必须实际出现；重复出现时必须提供从 1 起算的 occurrence，优先选择唯一锚点。`length` 默认 8，范围为 1–60 行。生成器写出真实行号，不接受手填摘录冒充源码。可选 `id` 遵循模块 id 格式，在同一实体内唯一；提供后用它替代 sources 数组下标作为稳定证据身份。`before` / `after` 可要求锚点上下文同时出现；`excerptSha256` 可固定已经核对过的原始摘录，摘录变化时证据会进入 unresolved 状态。`evidenceBindings` 可把 `/summary`、`/facts/0`、`/fields/0/description`、`/guard` 等具体结论绑定到当前实体的 source.id。
 
 `redact` 是非空字面值数组。构建和上下文使用当前清单全部脱敏值的并集，覆盖公开数据、摘要、匹配文本和 diff；快照保存全局脱敏后的摘录、原始摘录哈希、已存摘录哈希和策略哈希，不保存脱敏字面值列表。源文件保持原样；含遮盖值的原始清单需要妥善保存。
 
@@ -180,7 +180,7 @@ node scripts/verify-schema.mjs --ajv tmp-schema-validation/node_modules/ajv/dist
 
 ## 模块架构与数据流向
 
-`relations` 是显式关系集合，每条关系包含唯一 `id`、模块端点 `from` / `to`、`kind`、图中短标签 `label`、业务说明 `summary` 和至少一处 `sources`。可选 `payload` 列出传递的数据。
+`relations` 是显式关系集合，每条关系包含唯一 `id`、模块端点 `from` / `to`、`kind`、图中短标签 `label`、业务说明 `summary` 和至少一处 `sources`。可选 `payload` 列出传递的数据，`trigger` 和 `async` 说明触发条件及异步交接。
 
 | kind | 方向与用途 | 例子 |
 |---|---|---|
@@ -228,7 +228,7 @@ node scripts/verify-schema.mjs --ajv tmp-schema-validation/node_modules/ajv/dist
 
 ## 业务链路与阶段覆盖
 
-复杂项目不要只用一张总览图承载所有业务关系。`chains` 描述需要闭环核对的业务链路，每条链路用 `stages` 把入口、校验、编排、数据读写、副作用、结果和失败恢复拆成可复核阶段。链路自己的 `sources` 证明它确实存在；阶段的 `sources` 证明该阶段的实现位置。
+复杂项目不要只用一张总览图承载所有业务关系。`chains` 描述需要闭环核对的业务链路，每条链路用 `stages` 把入口、校验、编排、数据读写、副作用、结果和失败恢复拆成可复核阶段。链路自己的 `sources` 证明它确实存在；阶段的 `sources` 证明该阶段的实现位置。需要表达分支和实际转移时增加 `transitions`，每条转移引用 `from` / `to` 阶段，并可记录 `guard`、`effects`、`async`、`transaction`、`idempotency` 和 `compensation`。带 `chain` 的 `flow` 视图会据此生成流程图。
 
 ```json
 {

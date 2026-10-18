@@ -6,6 +6,7 @@
   "additionalProperties": false,
   "required": ["workspace", "output", "project", "modules"],
   "properties": {
+    "manifestVersion": { "const": 1 },
     "$schema": { "type": "string", "description": "编辑器使用的 Schema 路径；CLI 始终使用随工具分发的本地 Schema，不读取此地址。" },
     "workspace": { "$ref": "#/$defs/text", "description": "相对清单所在目录的工作区路径，也可为绝对路径。" },
     "output": { "$ref": "#/$defs/text", "pattern": "\\.[hH][tT][mM][lL]$", "description": "工作区内 HTML 输出位置。" },
@@ -28,14 +29,21 @@
     "flags": { "type": "array", "items": { "$ref": "#/$defs/flag" } },
     "repositories": { "type": "array", "items": { "$ref": "#/$defs/repository" } },
     "fileGroups": { "type": "array", "items": { "$ref": "#/$defs/fileGroup" } },
-    "update": { "type": "object", "description": "增量工具维护的候选状态；内部字段由增量工作流核验。" },
-    "review": { "type": "object", "description": "接受工具维护的审核记录；Schema 通过不代表审核通过。" }
+    "update": { "$ref": "#/$defs/updateState" },
+    "review": { "$ref": "#/$defs/reviewState" }
   },
   "anyOf": [
     { "required": ["views"], "properties": { "views": { "minItems": 1 } } },
     { "required": ["chains"], "properties": { "chains": { "minItems": 1 } } }
   ],
   "$defs": {
+    "evidenceBinding": {"type": "object", "additionalProperties": false, "required": ["target", "sources"], "properties": {"target": {"type": "string", "pattern": "^/(?:summary|facts|payload|fields|description|guard|effects|transaction|idempotency|compensation)(?:/[^/]+)*$"}, "sources": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/id"}}}},
+    "transition": {"type": "object", "unevaluatedProperties": false, "allOf": [{"$ref": "#/$defs/runtime"}, {"if": {"required": ["status"], "properties": {"status": {"enum": ["confirmed", "inferred"]}}}, "then": {"required": ["sources"], "properties": {"sources": {"minItems": 1}}}}, {"if": {"required": ["status"], "properties": {"status": {"const": "unverified"}}}, "then": {"required": ["nextCheck"]}}], "required": ["id", "from", "to", "label", "status"], "properties": {"id": {"$ref": "#/$defs/id"}, "from": {"$ref": "#/$defs/id"}, "to": {"$ref": "#/$defs/id"}, "label": {"$ref": "#/$defs/text"}, "guard": {"$ref": "#/$defs/text"}, "effects": {"$ref": "#/$defs/texts"}, "async": {"type": "boolean"}, "transaction": {"$ref": "#/$defs/text"}, "idempotency": {"$ref": "#/$defs/text"}, "compensation": {"$ref": "#/$defs/text"}, "status": {"enum": ["confirmed", "inferred", "unverified"]}, "nextCheck": {"$ref": "#/$defs/text"}, "sources": {"$ref": "#/$defs/sources"}, "evidenceBindings": {"type": "array", "items": {"$ref": "#/$defs/evidenceBinding"}}}},
+    "hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "binding": {"type": "object", "additionalProperties": false, "required": ["candidateSha256", "analysisManifestSha256", "workspaceSha256", "inventorySha256", "baselineSha256", "deltaSha256"], "properties": {"candidateSha256": {"$ref": "#/$defs/hash"}, "analysisManifestSha256": {"$ref": "#/$defs/hash"}, "workspaceSha256": {"$ref": "#/$defs/hash"}, "inventorySha256": {"$ref": "#/$defs/hash"}, "baselineSha256": {"$ref": "#/$defs/hash"}, "deltaSha256": {"$ref": "#/$defs/hash"}}},
+    "updateState": {"type": "object", "additionalProperties": false, "properties": {"mode": {"const": "incremental-candidate"}, "generatedAt": {"$ref": "#/$defs/text"}, "baseSnapshot": {"$ref": "#/$defs/path"}, "deltaPath": {"$ref": "#/$defs/path"}, "summary": {"type": "object"}, "impactPaths": {"type": "object", "additionalProperties": {"type": "array", "items": {"$ref": "#/$defs/text"}}}, "impacted": {"$ref": "#/$defs/texts"}, "staleEvidence": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["key", "entity", "path", "reason"], "properties": {"key": {"$ref": "#/$defs/text"}, "entity": {"$ref": "#/$defs/text"}, "path": {"$ref": "#/$defs/text"}, "reason": {"$ref": "#/$defs/text"}}}}, "unmappedChanges": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["path", "status", "reason"], "properties": {"path": {"$ref": "#/$defs/path"}, "status": {"enum": ["added", "modified", "deleted", "renamed"]}, "reason": {"$ref": "#/$defs/text"}}}}, "reviewRequired": {"type": "boolean"}}, "if": {"required": ["mode"]}, "then": {"required": ["generatedAt", "baseSnapshot", "deltaPath", "summary", "impacted", "staleEvidence", "unmappedChanges", "reviewRequired"]}},
+    "reviewState": {"type": "object", "additionalProperties": false, "properties": {"version": {"$ref": "#/$defs/text"}, "reviewer": {"$ref": "#/$defs/text"}, "reviewedAt": {"$ref": "#/$defs/text"}, "acceptedAt": {"$ref": "#/$defs/text"}, "binding": {"$ref": "#/$defs/binding"}}, "if": {"required": ["version"]}, "then": {"required": ["reviewer", "reviewedAt", "acceptedAt", "binding"]}},
+
     "text": { "type": "string", "pattern": "\\S" },
     "id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{0,63}$" },
     "path": { "$ref": "#/$defs/text", "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\u0000]+$", "description": "工作区相对路径，使用 /，不含 ..；链接边界由 CLI 检查。" },
@@ -46,12 +54,14 @@
       "type": "object", "additionalProperties": false, "required": ["path", "match"],
       "properties": {
         "id": { "$ref": "#/$defs/id", "description": "同一实体内唯一的稳定证据 ID。" },
+        "before": { "$ref": "#/$defs/text" }, "after": { "$ref": "#/$defs/text" }, "excerptSha256": { "$ref": "#/$defs/hash" },
         "path": { "$ref": "#/$defs/path" }, "match": { "$ref": "#/$defs/text", "description": "源码中的字面锚点，不是正则表达式。" },
         "length": { "type": "integer", "minimum": 1, "maximum": 60, "default": 8 },
         "occurrence": { "type": "integer", "minimum": 1, "description": "重复锚点选第几次出现，从 1 开始。" },
         "redact": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "需要从公开产物中遮盖的字面值。" }
       }
     },
+    "provenance": { "type": "object", "properties": { "evidenceBindings": { "type": "array", "items": { "$ref": "#/$defs/evidenceBinding" } } } },
     "runtime": {
       "type": "object",
       "properties": {
@@ -60,7 +70,7 @@
       }
     },
     "module": {
-      "type": "object", "unevaluatedProperties": false, "allOf": [{ "$ref": "#/$defs/runtime" }],
+      "type": "object", "unevaluatedProperties": false, "allOf": [{ "$ref": "#/$defs/runtime" }, { "$ref": "#/$defs/provenance" }],
       "required": ["id", "name", "summary", "facts", "sources"],
       "properties": {
         "id": { "$ref": "#/$defs/id" }, "name": { "$ref": "#/$defs/text" }, "summary": { "$ref": "#/$defs/text" },
@@ -71,11 +81,12 @@
       }
     },
     "view": {
-      "type": "object", "unevaluatedProperties": false, "allOf": [{ "$ref": "#/$defs/runtime" }],
+      "type": "object", "unevaluatedProperties": false, "allOf": [{ "$ref": "#/$defs/runtime" }, { "$ref": "#/$defs/provenance" }],
       "required": ["id", "title", "modules"],
       "properties": {
         "id": { "$ref": "#/$defs/id", "not": { "const": "catalog" } }, "title": { "$ref": "#/$defs/text" },
         "subtitle": { "type": "string" }, "group": { "type": "string" }, "icon": { "$ref": "#/$defs/text" },
+        "chain": { "$ref": "#/$defs/id", "description": "从该链路显式 transitions 生成流程图。" },
         "kind": { "enum": ["overview", "flow", "narrative", "sequence", "state", "data", "data_flow", "deployment", "recovery", "dependency", "mindmap", "custom"] },
         "relations": { "$ref": "#/$defs/ids", "description": "显式关系 ID；省略 diagram 时只绘制 data_flow 数据流，不生成依赖或全部关系视图。" },
         "tables": { "$ref": "#/$defs/texts", "description": "本视图中的数据对象名称；ER 节点别名通过 aliases 对应实际名称。" },
@@ -87,15 +98,16 @@
         "useDefaultClasses": { "type": "boolean", "default": true },
         "legend": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["label", "color"], "properties": { "label": { "type": "string" }, "color": { "type": "string", "pattern": "^#[a-fA-F0-9]{6}$" } } } }
       },
-      "if": { "anyOf": [{ "required": ["kind"], "properties": { "kind": { "const": "narrative" } } }, { "required": ["relations"], "properties": { "relations": { "minItems": 1 } } }] },
+      "if": { "anyOf": [{ "required": ["chain"] }, { "required": ["kind"], "properties": { "kind": { "const": "narrative" } } }, { "required": ["relations"], "properties": { "relations": { "minItems": 1 } } }] },
       "else": { "required": ["diagram"] }
     },
     "relation": {
-      "type": "object", "unevaluatedProperties": false, "allOf": [{ "$ref": "#/$defs/runtime" }],
+      "type": "object", "unevaluatedProperties": false, "allOf": [{ "$ref": "#/$defs/runtime" }, { "$ref": "#/$defs/provenance" }],
       "required": ["id", "from", "to", "kind", "label", "summary", "sources"],
       "properties": {
         "id": { "$ref": "#/$defs/id" }, "from": { "$ref": "#/$defs/id" }, "to": { "$ref": "#/$defs/id" },
         "kind": { "enum": ["dependency", "data_flow"] },
+        "trigger": { "$ref": "#/$defs/text" }, "async": { "type": "boolean" },
         "label": { "$ref": "#/$defs/text" }, "summary": { "$ref": "#/$defs/text" },
         "payload": { "$ref": "#/$defs/texts" }, "sources": { "$ref": "#/$defs/sources", "minItems": 1 }
       }
@@ -115,7 +127,7 @@
       ]
     },
     "stage": {
-      "type": "object", "unevaluatedProperties": false, "allOf": [{ "$ref": "#/$defs/runtime" }, { "$ref": "#/$defs/coverageRules" }],
+      "type": "object", "unevaluatedProperties": false, "allOf": [{ "$ref": "#/$defs/runtime" }, { "$ref": "#/$defs/provenance" }, { "$ref": "#/$defs/coverageRules" }],
       "required": ["id", "label", "status", "summary"],
       "properties": {
         "id": { "$ref": "#/$defs/id" }, "label": { "$ref": "#/$defs/text" }, "summary": { "$ref": "#/$defs/text" },
@@ -127,18 +139,19 @@
       }
     },
     "chain": {
-      "type": "object", "unevaluatedProperties": false, "allOf": [{ "$ref": "#/$defs/runtime" }],
+      "type": "object", "unevaluatedProperties": false, "allOf": [{ "$ref": "#/$defs/runtime" }, { "$ref": "#/$defs/provenance" }],
       "required": ["id", "title", "summary", "trigger", "outcome", "stages", "sources"],
       "properties": {
         "id": { "$ref": "#/$defs/id" }, "title": { "$ref": "#/$defs/text" }, "summary": { "$ref": "#/$defs/text" },
         "kind": { "$ref": "#/$defs/text" }, "trigger": { "$ref": "#/$defs/text" }, "outcome": { "$ref": "#/$defs/text" },
         "modules": { "$ref": "#/$defs/ids" }, "views": { "$ref": "#/$defs/ids" },
+        "transitions": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/transition" } },
         "stages": { "type": "array", "minItems": 3, "items": { "$ref": "#/$defs/stage" } },
         "sources": { "$ref": "#/$defs/sources", "minItems": 1 }
       }
     },
     "finding": {
-      "type": "object", "unevaluatedProperties": false, "allOf": [{ "$ref": "#/$defs/runtime" }],
+      "type": "object", "unevaluatedProperties": false, "allOf": [{ "$ref": "#/$defs/runtime" }, { "$ref": "#/$defs/provenance" }],
       "required": ["id", "title", "summary", "kind", "status", "sources"],
       "properties": {
         "id": { "$ref": "#/$defs/id" }, "title": { "$ref": "#/$defs/text" }, "summary": { "$ref": "#/$defs/text" },
@@ -150,7 +163,7 @@
       "then": { "required": ["nextCheck"], "properties": { "nextCheck": { "$ref": "#/$defs/text" } } }
     },
     "coverage": {
-      "type": "object", "unevaluatedProperties": false, "allOf": [{ "$ref": "#/$defs/runtime" }, { "$ref": "#/$defs/coverageRules" }],
+      "type": "object", "unevaluatedProperties": false, "allOf": [{ "$ref": "#/$defs/runtime" }, { "$ref": "#/$defs/provenance" }, { "$ref": "#/$defs/coverageRules" }],
       "required": ["id", "area", "summary", "status"],
       "properties": {
         "id": { "$ref": "#/$defs/id" }, "area": { "$ref": "#/$defs/text" }, "summary": { "$ref": "#/$defs/text" },
@@ -159,7 +172,7 @@
       }
     },
     "table": {
-      "type": "object", "unevaluatedProperties": false, "allOf": [{ "$ref": "#/$defs/runtime" }],
+      "type": "object", "unevaluatedProperties": false, "allOf": [{ "$ref": "#/$defs/runtime" }, { "$ref": "#/$defs/provenance" }],
       "required": ["name", "title", "kind", "description", "sources"],
       "properties": {
         "name": { "$ref": "#/$defs/text" }, "title": { "$ref": "#/$defs/text" }, "kind": { "$ref": "#/$defs/text" },
@@ -172,6 +185,7 @@
       "type": "object", "additionalProperties": false, "required": ["name", "type", "description"],
       "properties": {
         "name": { "$ref": "#/$defs/text" }, "type": { "$ref": "#/$defs/text" }, "description": { "$ref": "#/$defs/text" },
+        "evidenceBindings": { "type": "array", "items": { "$ref": "#/$defs/evidenceBinding" } },
         "key": { "enum": ["PK", "FK", "UK", "KEY"] },
         "references": {
           "type": "object", "additionalProperties": false, "required": ["table", "field", "kind"],
@@ -180,7 +194,7 @@
       }
     },
     "route": {
-      "type": "object", "unevaluatedProperties": false, "allOf": [{ "$ref": "#/$defs/runtime" }],
+      "type": "object", "unevaluatedProperties": false, "allOf": [{ "$ref": "#/$defs/runtime" }, { "$ref": "#/$defs/provenance" }],
       "required": ["prefix", "name", "description", "sources"],
       "properties": {
         "prefix": { "$ref": "#/$defs/text" }, "name": { "$ref": "#/$defs/text" }, "kind": { "$ref": "#/$defs/text" },
@@ -188,7 +202,7 @@
       }
     },
     "flag": {
-      "type": "object", "unevaluatedProperties": false, "allOf": [{ "$ref": "#/$defs/runtime" }],
+      "type": "object", "unevaluatedProperties": false, "allOf": [{ "$ref": "#/$defs/runtime" }, { "$ref": "#/$defs/provenance" }],
       "required": ["name", "value", "description", "sources"],
       "properties": {
         "name": { "$ref": "#/$defs/text" }, "value": {}, "description": { "$ref": "#/$defs/text" },

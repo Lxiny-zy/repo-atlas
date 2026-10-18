@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { loadManifest, parseOptions, createSnapshot, assertOutputInside, writeJson, assertBaselineWorkspace, snapshotHash, protectedSourcePaths } from './snapshot-lib.mjs';
+import { loadManifest, parseOptions, createSnapshot, assertOutputInside, writeJson, assertBaselineWorkspace, snapshotHash, protectedSourcePaths, analyzeImpact } from './snapshot-lib.mjs';
 import { planOutput, atomicWrite } from './io-lib.mjs';
 
 const options = parseOptions(process.argv.slice(2), {"value":["from","output","snapshot-output"],"usage":"Usage: node scripts/delta.mjs <atlas.json> [--from snapshot.json] [--output delta.json] [--snapshot-output current-snapshot.json]"});
@@ -95,12 +95,13 @@ const recomputedEvidence = Object.values(currentEvidence).filter(item => item.re
 const manifestChanged = baseline.analysisManifestSha256 != null
   ? baseline.analysisManifestSha256 !== current.analysisManifestSha256
   : baseline.manifestSha256 !== current.manifestSha256;
-const impacted = [...new Set([
+const impactSeeds = [...new Set([
   ...changes.flatMap(change => change.impact),
   ...staleEvidence.map(item => item.entity),
   ...(manifestChanged ? Object.keys(current.summaryIndex || {}) : []),
   ...staleEvidence.filter(item => item.entity.startsWith('chain-stage:')).map(item => `chain:${item.entity.slice('chain-stage:'.length).split('/')[0]}`)
 ])].sort();
+const { impacted, paths: impactPaths } = analyzeImpact(bundle.manifest, impactSeeds);
 const modifiedCount = changes.filter(change => change.status === 'modified').length;
 const previousFileCount = Object.keys(oldFiles).length;
 const changedFileRatio = previousFileCount ? changes.length / previousFileCount : changes.length ? 1 : 0;
@@ -121,6 +122,12 @@ const delta = {
   to: { git: current.git, manifestSha256: current.manifestSha256, analysisManifestSha256: current.analysisManifestSha256, inventorySha256: current.inventorySha256 },
   changes,
   unmappedChanges,
+  impact: {
+    strategy: 'one-module-hop-v1',
+    paths: impactPaths,
+    seeds: impactSeeds,
+    expanded: impacted.filter(key => !impactSeeds.includes(key))
+  },
   staleEvidence,
   impacted,
   summary: {

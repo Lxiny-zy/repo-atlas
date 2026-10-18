@@ -8,6 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { validateManifest, validateManifestFile, relocateSchema } from '../scripts/manifest-lib.mjs';
 import { analysisManifestHash } from '../scripts/snapshot-lib.mjs';
 import { copyFixture } from '../scripts/fixture-lib.mjs';
+import { resolveEvidence } from '../scripts/evidence-lib.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const original = JSON.parse(await readFile(resolve(root, 'tests/fixtures/multi-chain/atlas.json'), 'utf8'));
@@ -38,6 +39,16 @@ test('legacy, narrative, runtime fields and custom stage kinds remain valid', ()
   assert.deepEqual(validateManifest(manifest), []);
   manifest.views = []; manifest.chains.forEach(chain => { chain.views = []; });
   assert.deepEqual(validateManifest(manifest), [], 'chains alone can generate reading views');
+});
+
+test('context-pinned evidence rejects a changed excerpt and surrounding lines disambiguate anchors', () => {
+  const document = 'before\nanchor\nafter\nanchor';
+  const resolved = resolveEvidence(document, { path: 'src/order.js', match: 'anchor', before: 'before', after: 'after', length: 1 });
+  assert.equal(resolved.state, 'resolved');
+  assert.equal(resolved.line, 2);
+  const changed = resolveEvidence(document, { path: 'src/order.js', match: 'anchor', before: 'before', after: 'after', length: 1, excerptSha256: '0'.repeat(64) });
+  assert.equal(changed.state, 'changed');
+  assert.equal(changed.resolved, false);
 });
 
 test('multiple field errors, duplicate identities and broken references are located together', () => {

@@ -47,6 +47,24 @@ test('relations and data fields validate references and preserve older manifests
   assert.ok(validateManifest(input).some(row => row.code === 'identity.duplicate' && row.path === '/relations/1/id'));
 });
 
+test('structured chain transitions validate, render and remain available to the report reader', async t => {
+  const input = manifest();
+  const chain = input.chains[0];
+  chain.views.push('auto_flow');
+  chain.transitions = [
+    { id: 'validate_to_publish', from: 'validation', to: 'publish', label: 'Validation succeeds', guard: 'input is valid', effects: ['order status'], status: 'confirmed', sources: structuredClone(chain.stages[1].sources) }
+  ];
+  input.views.push({ id: 'auto_flow', title: 'Generated order flow', kind: 'flow', chain: chain.id, modules: chain.modules, sources: [] });
+  assert.deepEqual(validateManifest(input), []);
+  const dir = await fixture(t, input);
+  run(dir, 'build.mjs', 'atlas.json');
+  const html = await readFile(resolve(dir, 'report.html'), 'utf8');
+  const data = JSON.parse(html.match(/<script id="graph-data" type="application\/json">([\s\S]*?)<\/script>/)[1]);
+  const built = data.chains.find(row => row.id === chain.id);
+  assert.equal(built.transitions[0].guard, 'input is valid');
+  assert.match(data.views.find(row => row.id === 'auto_flow').diagram, /validate_to_publish|Validation succeeds/);
+});
+
 test('reader diagrams show only declared data delivery and safely name Mermaid nodes', () => {
   const modules = [{ id: 'end', name: 'End "handler"' }, { id: 'graph', name: 'Graph <storage>' }];
   const rows = [{ id: 'dep', from: 'end', to: 'graph', kind: 'dependency', label: 'reads' }, { id: 'flow', from: 'graph', to: 'end', kind: 'data_flow', label: 'result' }];

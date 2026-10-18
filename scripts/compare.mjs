@@ -29,7 +29,10 @@ const clone = value => {
 const semanticRow = (row, collection) => {
   const result = clone(row);
   for (const field of runtimeFields) delete result[field];
-  if (collection === 'chains') result.stages = (result.stages || []).map(stage => semanticRow(stage, 'stages'));
+  if (collection === 'chains') {
+    result.stages = (result.stages || []).map(stage => semanticRow(stage, 'stages'));
+    if (result.transitions) result.transitions = result.transitions.map(row => semanticRow(row, 'transitions'));
+  }
   return result;
 };
 const indexCollection = (manifest, collection, key) => new Map((manifest[collection] || []).map((row, index) => [String(row?.[key] ?? index), { row, index }]));

@@ -10,7 +10,7 @@ import { redactValue, redactionValues } from './evidence-lib.mjs';
 import { collectSourceRows } from './snapshot-lib.mjs';
 import { relocateSchema } from './manifest-lib.mjs';
 
-const options = parseOptions(process.argv.slice(2), {"value":["review","output-dir"],"required":["review"],"usage":"Usage: node scripts/accept.mjs <atlas.next.json> --review review.json [--output-dir accepted/version]"});
+const options = parseOptions(process.argv.slice(2), {"value":["review","output-dir","assets-dir","source-bundle"],"required":["review"],"usage":"Usage: node scripts/accept.mjs <atlas.next.json> --review review.json [--output-dir accepted/version] [--assets-dir assets] [--source-bundle sources]"});
 const bundle = await loadManifest(options._[0]);
 const reviewPath = assertOutputInside(bundle.workspace, options.review);
 const review = JSON.parse(await readFile(reviewPath, 'utf8'));
@@ -35,7 +35,17 @@ try {
   relocateSchema(accepted, bundle.manifestPath, stageManifest);
   await atomicWrite(bundle.workspace, stageManifest, writeJson(accepted), { replace: false });
   // A formal build validates the whole candidate before publishing a version.
-  execFileSync(process.execPath, [resolve(dirname(fileURLToPath(import.meta.url)), 'build.mjs'), stageManifest], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  // Optional bundles live inside staging, so relative links remain valid after
+  // the staging directory is atomically renamed to the accepted version.
+  const buildArgs = [resolve(dirname(fileURLToPath(import.meta.url)), 'build.mjs'), stageManifest];
+  const bundlePaths = [];
+  for (const option of ['assets-dir', 'source-bundle']) if (options[option]) {
+    const target = resolve(staging, options[option]);
+    if (!inside(staging, target)) throw new Error(`--${option} must stay inside the accepted version`);
+    buildArgs.push(`--${option}`, slash(relative(bundle.workspace, target)));
+    bundlePaths.push(target);
+  }
+  execFileSync(process.execPath, buildArgs, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
   // Recheck inputs and sources after building so acceptance cannot mix versions.
   const finalBundle = await loadManifest(bundle.manifestPath);
   const finalState = await reviewState(finalBundle);
@@ -55,6 +65,19 @@ try {
   await atomicWrite(bundle.workspace, resolve(staging, 'review.json'), writeJson(receipt), { replace: false });
   const reportPath = resolve(staging, 'report.html');
   const reportBytes = await readFile(reportPath);
+  const bundledFiles = [];
+  const collectBundleFiles = async directory => {
+    const { readdir } = await import('node:fs/promises');
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const full = resolve(directory, entry.name);
+      if (entry.isDirectory()) await collectBundleFiles(full);
+      else if (entry.isFile()) {
+        const bytes = await readFile(full);
+        bundledFiles.push({ path: slash(relative(staging, full)), sha256: hashText(bytes), bytes: bytes.byteLength });
+      }
+    }
+  };
+  for (const directory of bundlePaths) if (await exists(directory)) await collectBundleFiles(directory);
   const delivery = redactValue({
     schemaVersion: 1,
     purpose: 'repo-atlas-delivery',
@@ -63,6 +86,7 @@ try {
     generatedAt: new Date().toISOString(),
     command: 'accept',
     artifact: { path: 'report.html', sha256: hashText(reportBytes.toString('utf8')), bytes: reportBytes.byteLength },
+    bundles: bundledFiles,
     inputs: {
       manifest: { path: 'atlas.json', sha256: hashText(raw), bytes: Buffer.byteLength(raw) },
       snapshot: { path: 'snapshot.json', sha256: hashText(writeJson(snapshot)), bytes: Buffer.byteLength(writeJson(snapshot)) },

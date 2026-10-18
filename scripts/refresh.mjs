@@ -33,6 +33,7 @@ next.update = {
   baseSnapshot: delta.from?.path || '.repo-atlas/snapshot.json',
   deltaPath: options.delta || '.repo-atlas/delta.json',
   summary: delta.summary,
+  impactPaths: delta.impact?.paths || {},
   impacted: [...new Set([...(bundle.manifest.update?.impacted || []), ...(delta.impacted || [])])],
   staleEvidence: mergeQueue(bundle.manifest.update?.staleEvidence, delta.staleEvidence, 'key'),
   unmappedChanges: mergeQueue(bundle.manifest.update?.unmappedChanges, delta.unmappedChanges, 'path'),
@@ -44,7 +45,8 @@ next.views = (next.views || []).map(row => mark(row, `view:${row.id}`));
 next.chains = (next.chains || []).map(row => {
   const chain = mark(row, `chain:${row.id}`);
   chain.stages = (row.stages || []).map(stage => mark(stage, `chain-stage:${row.id}/${stage.id}`));
-  return chain.stages.some(stage => stage.reviewRequired) ? { ...chain, reviewRequired: true } : chain;
+  if (row.transitions) chain.transitions = row.transitions.map(transition => mark(transition, `chain-transition:${row.id}/${transition.id}`));
+  return [...chain.stages, ...(chain.transitions || [])].some(stage => stage.reviewRequired) ? { ...chain, reviewRequired: true } : chain;
 });
 next.findings = (next.findings || []).map(row => mark(row, `finding:${row.id}`));
 next.coverage = (next.coverage || []).map(row => mark(row, `coverage:${row.id}`));

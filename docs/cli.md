@@ -32,12 +32,17 @@ compare 的新防护改变了旧行为：以前任意 `--output` 会直接写入
 
 ```sh
 node scripts/validate.mjs <atlas.json> [more.json ...] [--json] [--structure-only] [--review]
-node scripts/build.mjs <atlas.json> [--replace] [--review]
+node scripts/build.mjs <atlas.json> [--replace] [--review] [--assets-dir .repo-atlas/assets] [--source-bundle .repo-atlas/sources]
+node scripts/doctor.mjs <atlas.json> [--json] [--strict]
+node scripts/init.mjs <workspace> --source src/entry.js [--output docs/architecture/atlas.json]
+node scripts/migrate.mjs <atlas.json> --output atlas.migrated.json [--pin-evidence]
 ```
 
 validate 聚合类型、未知字段、重复 ID、无效引用、路径和证据诊断，使用 JSON Pointer 定位。`--structure-only` 跳过文件系统证据检查；`--review` 将缺失或歧义证据降为警告，路径越界仍报错。两者同时使用时结构模式优先。
 
 validate 不重建完整目录索引，不验证 Git、图形渲染或审核绑定。build 生成正式报告时保持严格证据要求；`--review` 生成明确标注用途的临时预览。
+
+`doctor` 是只读的作者检查：除清单、路径和证据验证外，会提示没有稳定 `sources[].id`、事实没有 `evidenceBindings`、链路只有阶段顺序而没有 `transitions` 等维护风险；`--strict` 将这些提醒作为失败。`init` 生成可继续编辑的最小清单，`migrate` 在新文件中补齐稳定证据 ID，可选用当前摘录哈希固定锚点；两者都不会覆盖输入。
 
 ## 快照、差异与候选
 
@@ -59,12 +64,14 @@ node scripts/refresh.mjs <atlas.json> [--delta .repo-atlas/delta.json] [--from s
 
 ```sh
 node scripts/review.mjs <atlas.next.json> [--output .repo-atlas/review.json]
-node scripts/accept.mjs <atlas.next.json> --review .repo-atlas/review.json [--output-dir .repo-atlas/accepted/VERSION]
+node scripts/accept.mjs <atlas.next.json> --review .repo-atlas/review.json [--output-dir .repo-atlas/accepted/VERSION] [--assets-dir assets] [--source-bundle sources]
 ```
 
 review 生成待填写的任务。审核人须填写身份说明、带时区时间及逐项决定与理由；不要修改任务描述、指纹或绑定字段。`pending`、`deferred`、`needs_changes` 都不能接受。接受前再次检查源码、候选和基线，并执行严格 build。
 
 accept 原子发布新的版本目录；失败时清理暂存目录。复核记录是本地声明，不是身份认证。
+
+`accept` 的 `--assets-dir` 和 `--source-bundle` 会把外置报告资源放入同一 accepted version，并把每个文件写入 `delivery.json`；`check-delivery.mjs` 会同时校验这些文件。两个路径都必须位于 accepted version 内部。
 
 后续以已接受版本继续增量，所有相对 `--from` 仍以原 workspace 为基准：
 

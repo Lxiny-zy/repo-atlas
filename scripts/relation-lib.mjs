@@ -30,3 +30,16 @@ export function relationVariants(view, modules, relations) {
     defaultMode: 'data_flow'
   };
 }
+
+export function chainDiagram(chain, direction = 'LR') {
+  const lines = [`flowchart ${direction}`];
+  for (const stage of chain.stages || []) lines.push(`atlas_stage_${stage.id}["${label(stage.label)}"]`);
+  for (const transition of chain.transitions || []) {
+    const edgeLabel = transition.guard ? `${transition.label}: ${transition.guard}` : transition.label;
+    const status = transition.status === 'unverified' ? ' [待验证]' : transition.status === 'inferred' ? ' [推断]' : '';
+    lines.push(`atlas_stage_${transition.from} ${transition.status === 'confirmed' ? '-->' : '-.->'}|"${label(edgeLabel + status)}"| atlas_stage_${transition.to}`);
+  }
+  lines.push('classDef stage fill:#f2f7f5,stroke:#91b4a8,color:#254f43,stroke-width:1.5px');
+  for (const stage of chain.stages || []) lines.push(`class atlas_stage_${stage.id} stage`);
+  return lines.join('\n');
+}

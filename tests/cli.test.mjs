@@ -24,7 +24,7 @@ test('CLI rejects unknown, duplicate, missing, extra and incorrectly typed argum
 });
 
 test('public CLI help and invalid options exit before filesystem or browser work', () => {
-  for (const script of ['build', 'validate', 'snapshot', 'delta', 'context', 'refresh', 'review', 'accept', 'compare', 'check-delivery', 'verify', 'benchmark']) {
+  for (const script of ['build', 'validate', 'snapshot', 'delta', 'context', 'refresh', 'review', 'accept', 'compare', 'check-delivery', 'verify', 'benchmark', 'init', 'doctor', 'migrate']) {
     const file = fileURLToPath(new URL(`../scripts/${script}.mjs`, import.meta.url));
     const invoke = (...args) => spawnSync(process.execPath, [file, ...args], { encoding: 'utf8', windowsHide: true });
     const help = invoke('--help');

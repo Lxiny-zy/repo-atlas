@@ -4,15 +4,17 @@ import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
 import { createReadStream } from 'node:fs';
-import { normalizeSource, sourceReader, resolveEvidence, redactionValues, redactValue } from './evidence-lib.mjs';
+import { normalizeSource, sourceReader, resolveEvidence, redactionValues, redactValue, hashBytes } from './evidence-lib.mjs';
 import { planOutput, atomicWrite } from './io-lib.mjs';
-import { collectSourceRows, createSnapshot, analysisManifestHash } from './snapshot-lib.mjs';
+import { collectSourceRows, createSnapshot, analysisManifestHash, moduleRelationEdges } from './snapshot-lib.mjs';
 import { assertManifest } from './manifest-lib.mjs';
 import { parseOptions } from './cli-lib.mjs';
-import { relationVariants } from './relation-lib.mjs';
+import { relationVariants, chainDiagram } from './relation-lib.mjs';
+import { publishFiles, relativeUrl } from './report-bundle-lib.mjs';
+import { assertOutputInside } from './io-lib.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const options = parseOptions(process.argv.slice(2), { boolean: ['replace', 'review'], usage: 'Usage: node scripts/build.mjs <atlas.json> [--replace] [--review]' });
+const options = parseOptions(process.argv.slice(2), { boolean: ['replace', 'review'], value: ['assets-dir', 'source-bundle'], usage: 'Usage: node scripts/build.mjs <atlas.json> [--replace] [--review] [--assets-dir .repo-atlas/assets] [--source-bundle .repo-atlas/sources]' });
 const input = options._[0];
 const replace = Boolean(options.replace);
 const reviewMode = Boolean(options.review);
@@ -35,6 +37,8 @@ const inside = (root, path) => {
 const workspace = await realpath(resolve(dirname(manifestPath), requireText(manifest.workspace, 'workspace')));
 const protectedPaths = [manifestPath, ...collectSourceRows(manifest).map(source => resolve(workspace, source.path))];
 const output = planOutput(workspace, requireText(manifest.output, 'output'), { extension: '.html', replace, protectedPaths });
+const assetDirectory = options['assets-dir'] ? assertOutputInside(workspace, options['assets-dir']) : null;
+const sourceDirectory = options['source-bundle'] ? assertOutputInside(workspace, options['source-bundle']) : null;
 if (manifest.review && !manifest.update) {
   const current = await createSnapshot({ manifestPath, manifest, workspace, raw: JSON.stringify(manifest) }, null, { allowMissingSources: true });
   if (current.inventorySha256 !== manifest.review.binding?.inventorySha256 || analysisManifestHash(manifest) !== manifest.review.binding?.analysisManifestSha256 || current.workspaceSha256 !== manifest.review.binding?.workspaceSha256) throw new Error('Reviewed version drift; refresh and review before rebuilding an accepted report');
@@ -99,7 +103,7 @@ const modules = await Promise.all(requireList(manifest.modules, 'modules').map(a
   const links = requireList(module.links || [], `module.links in ${module.id}`);
   if (module.icon != null) requireText(module.icon, `module.icon in ${module.id}`);
   if (!requireList(module.sources, 'module.sources').length) throw new Error(`No evidence for module ${module.id}`);
-  return { id: module.id, name: module.name, summary: module.summary, category: module.category || '业务模块', icon: module.icon || 'box', facts, links, ...freshnessFields(module), sources: await Promise.all(module.sources.map(evidence)) };
+  return { id: module.id, name: module.name, summary: module.summary, category: module.category || '业务模块', icon: module.icon || 'box', facts, links, paths: module.paths || [], evidenceBindings: module.evidenceBindings || [], ...freshnessFields(module), sources: await Promise.all(module.sources.map(evidence)) };
 }));
 if (!modules.length) throw new Error('At least one evidenced module is required');
 const moduleIds = new Set(modules.map(module => module.id));
@@ -123,11 +127,12 @@ const views = await Promise.all(requireList(manifest.views || [], 'views').map(a
   uniqueId(view.id, 'view');
   if (view.id === 'catalog') throw new Error('catalog is reserved for the generated index');
   requireText(view.title, 'view.title');
-  const generated = !view.diagram && view.relations?.length ? relationVariants(view, modules, relations) : null;
+  const authoredChain = view.chain ? manifest.chains?.find(chain => chain.id === view.chain) : null;
+  const generated = authoredChain ? { kind: 'chain', diagram: chainDiagram(authoredChain), mobileDiagram: chainDiagram(authoredChain, 'TB') } : !view.diagram && view.relations?.length ? relationVariants(view, modules, relations) : null;
   if (view.kind !== 'narrative' && !generated) requireText(view.diagram, 'view.diagram');
   else if (view.diagram != null) requireText(view.diagram, 'view.diagram');
   const inferredKind = inferViewKind(view.diagram || '');
-  const kind = inferredKind === 'sequence' ? 'sequence' : generated && (!view.kind || view.kind === 'dependency') ? 'data_flow' : view.kind || inferredKind;
+  const kind = authoredChain ? 'flow' : inferredKind === 'sequence' ? 'sequence' : generated && (!view.kind || view.kind === 'dependency') ? 'data_flow' : view.kind || inferredKind;
   if (!viewKinds.has(kind)) throw new Error(`Invalid view.kind in ${view.id}: ${kind}`);
   if (view.mobileDiagram != null) requireText(view.mobileDiagram, `view.mobileDiagram in ${view.id}`);
   for (const id of requireList(view.modules, 'view.modules')) if (!moduleIds.has(id)) throw new Error(`Unknown module in view ${view.id}: ${id}`);
@@ -142,11 +147,12 @@ const views = await Promise.all(requireList(manifest.views || [], 'views').map(a
   const theme = diagram => /^\s*(flowchart|graph)\s/.test(diagram) && view.useDefaultClasses !== false ? diagram + '\n' + flowClasses : diagram;
   return {
     id: view.id, title: view.title, subtitle: view.subtitle || '', icon: view.icon || 'network', group: view.group || '项目图谱',
-    kind, tags, diagram: generated ? generated.variants[generated.defaultMode].diagram : view.diagram ? theme(view.diagram) : undefined,
-    mobileDiagram: generated ? generated.variants[generated.defaultMode].mobileDiagram : view.mobileDiagram ? theme(view.mobileDiagram) : undefined,
+    kind, chain: view.chain || undefined, tags, diagram: generated ? theme(generated.diagram || generated.variants[generated.defaultMode].diagram) : view.diagram ? theme(view.diagram) : undefined,
+    mobileDiagram: generated ? theme(generated.mobileDiagram || generated.variants[generated.defaultMode].mobileDiagram) : view.mobileDiagram ? theme(view.mobileDiagram) : undefined,
     relations: view.relations || [], tables: view.tables || [],
-    ...(generated ? { relationDiagrams: generated.variants, defaultRelationMode: generated.defaultMode } : {}),
-    bindings: view.bindings || [],
+    ...(generated?.variants ? { relationDiagrams: generated.variants, defaultRelationMode: generated.defaultMode } : {}),
+    bindings: authoredChain ? authoredChain.stages.map(stage => ({ node: `atlas_stage_${stage.id}`, chain: authoredChain.id, stage: stage.id })) : view.bindings || [],
+    evidenceBindings: view.evidenceBindings || [],
     modules: view.modules, notes, aliases: Object.keys(aliases).length ? aliases : undefined, legend: legend.length ? legend : undefined, ...freshnessFields(view),
     sources: await Promise.all(requireList(view.sources || [], `view.sources in ${view.id}`).map(evidence))
   };
@@ -180,11 +186,21 @@ const chains = await Promise.all(requireList(manifest.chains || [], 'chains').ma
     const sources = await Promise.all(requireList(stage.sources || [], `chain stage.sources in ${chain.id}/${stage.id}`).map(evidence));
     if (['covered', 'partial'].includes(stage.status) && !sources.length) throw new Error(`Chain stage ${chain.id}/${stage.id} requires evidence`);
     if (stage.status === 'unknown' && !stage.nextCheck) throw new Error(`Unknown chain stage ${chain.id}/${stage.id} must provide nextCheck`);
-    return { id: stage.id, kind: stage.kind || 'custom', label: stage.label, status: stage.status, summary: stage.summary, codeExplanation: stage.codeExplanation || '', relations: stage.relations || [], nextCheck: stage.nextCheck || '', modules: stageModules, ...freshnessFields(stage), sources };
+    return { id: stage.id, kind: stage.kind || 'custom', label: stage.label, status: stage.status, summary: stage.summary, codeExplanation: stage.codeExplanation || '', relations: stage.relations || [], nextCheck: stage.nextCheck || '', modules: stageModules, evidenceBindings: stage.evidenceBindings || [], ...freshnessFields(stage), sources };
+  }));
+  const transitions = await Promise.all(requireList(chain.transitions || [], `chain.transitions in ${chain.id}`).map(async transition => {
+    requireText(transition.id, `transition.id in ${chain.id}`);
+    if (!stageIds.has(transition.from) || !stageIds.has(transition.to)) throw new Error(`Unknown transition endpoint in ${chain.id}/${transition.id}`);
+    requireText(transition.label, `transition.label in ${chain.id}/${transition.id}`);
+    if (!['confirmed', 'inferred', 'unverified'].includes(transition.status)) throw new Error(`Invalid transition status in ${chain.id}/${transition.id}`);
+    const sources = await Promise.all(requireList(transition.sources || [], `transition.sources in ${chain.id}/${transition.id}`).map(evidence));
+    if (['confirmed', 'inferred'].includes(transition.status) && !sources.length) throw new Error(`Transition ${chain.id}/${transition.id} requires evidence`);
+    if (transition.status === 'unverified' && !transition.nextCheck) throw new Error(`Unverified transition ${chain.id}/${transition.id} requires nextCheck`);
+    return { ...transition, effects: transition.effects || [], sources };
   }));
   const sources = await Promise.all(requireList(chain.sources, `chain.sources in ${chain.id}`).map(evidence));
   if (!sources.length) throw new Error(`No evidence for chain ${chain.id}`);
-  return { id: chain.id, title: chain.title, kind: chain.kind || '业务链路', summary: chain.summary, trigger: chain.trigger, outcome: chain.outcome, modules: related, views: chainViews, stages: normalizedStages, ...freshnessFields(chain), sources };
+  return { id: chain.id, title: chain.title, kind: chain.kind || '业务链路', summary: chain.summary, trigger: chain.trigger, outcome: chain.outcome, modules: related, views: chainViews, stages: normalizedStages, transitions, evidenceBindings: chain.evidenceBindings || [], ...freshnessFields(chain), sources };
 }));
 for (const chain of chains) {
   let readingView = views.find(view => view.bindings?.some(binding => binding.chain === chain.id))
@@ -242,7 +258,7 @@ const findings = await Promise.all(requireList(manifest.findings || [], 'finding
   const sources = await Promise.all(requireList(finding.sources, `finding.sources in ${finding.id}`).map(evidence));
   if (!sources.length) throw new Error(`No evidence for finding ${finding.id}`);
   if (finding.status === 'unverified' && !finding.nextCheck) throw new Error(`Unverified finding ${finding.id} must provide nextCheck`);
-  return { id: finding.id, title: finding.title, kind: finding.kind, status: finding.status, summary: finding.summary, impact: finding.impact || '', nextCheck: finding.nextCheck || '', modules: related, ...freshnessFields(finding), sources };
+  return { id: finding.id, title: finding.title, kind: finding.kind, status: finding.status, summary: finding.summary, impact: finding.impact || '', nextCheck: finding.nextCheck || '', modules: related, evidenceBindings: finding.evidenceBindings || [], ...freshnessFields(finding), sources };
 }));
 const coverageStatuses = new Set(['covered', 'partial', 'unknown', 'not_applicable']);
 const coverage = await Promise.all(requireList(manifest.coverage || [], 'coverage').map(async item => {
@@ -255,7 +271,7 @@ const coverage = await Promise.all(requireList(manifest.coverage || [], 'coverag
   const sources = await Promise.all(requireList(item.sources || [], `coverage.sources in ${item.id}`).map(evidence));
   if (['covered', 'partial'].includes(item.status) && !sources.length) throw new Error(`Coverage ${item.id} requires evidence for status ${item.status}`);
   if (item.status === 'unknown' && !item.nextCheck) throw new Error(`Unknown coverage ${item.id} must provide nextCheck`);
-  return { id: item.id, area: item.area, status: item.status, summary: item.summary, nextCheck: item.nextCheck || '', modules: related, ...freshnessFields(item), sources };
+  return { id: item.id, area: item.area, status: item.status, summary: item.summary, nextCheck: item.nextCheck || '', modules: related, evidenceBindings: item.evidenceBindings || [], ...freshnessFields(item), sources };
 }));
 const files = [];
 const listed = new Set();
@@ -276,7 +292,7 @@ for (const group of requireList(manifest.fileGroups || [], 'fileGroups')) {
     const info = await stat(full);
     if (info.isDirectory()) {
       for (const entry of await readdir(full, { withFileTypes: true })) {
-        if (excludes.has(entry.name) || entry.isSymbolicLink()) continue;
+      if (excludes.has(entry.name) || /\.verification$/.test(entry.name) || entry.isSymbolicLink()) continue;
         await visit(path.replace(/\/$/, '') + '/' + entry.name);
       }
     } else if (info.isFile() && extensions.includes(extname(path).toLowerCase())) {
@@ -310,6 +326,19 @@ for (const chain of chains) {
   const linkedViews = chain.views.map(id => views.find(view => view.id === id)).filter(Boolean);
   const linkedModules = new Set(linkedViews.flatMap(view => view.modules));
   for (const moduleId of chain.modules) if (linkedViews.length && !linkedModules.has(moduleId)) qualityWarnings.push(`“${chain.title}”涉及的“${modules.find(module => module.id === moduleId)?.name || '相关环节'}”尚未出现在配套关系图中。`);
+  if (chain.transitions?.length) {
+    const outgoing = new Map(chain.stages.map(stage => [stage.id, []]));
+    const incoming = new Map(chain.stages.map(stage => [stage.id, 0]));
+    for (const transition of chain.transitions) {
+      outgoing.get(transition.from)?.push(transition.to);
+      incoming.set(transition.to, (incoming.get(transition.to) || 0) + 1);
+    }
+    const roots = chain.stages.filter(stage => stage.kind === 'entry' || incoming.get(stage.id) === 0).map(stage => stage.id);
+    const reachable = new Set(roots), queue = [...roots];
+    for (let index = 0; index < queue.length; index++) for (const next of outgoing.get(queue[index]) || []) if (!reachable.has(next)) { reachable.add(next); queue.push(next); }
+    for (const stage of chain.stages) if (!reachable.has(stage.id)) qualityWarnings.push(`“${chain.title}”的阶段“${stage.label}”在 transitions 中不可达，需要确认入口或转移。`);
+    for (const stage of chain.stages) if (!(outgoing.get(stage.id) || []).length && !['outcome', 'recovery'].includes(stage.kind)) qualityWarnings.push(`“${chain.title}”的终止阶段“${stage.label}”未标记为结果或恢复阶段。`);
+  }
 }
 const quality = { level: qualityWarnings.length ? 'review' : 'ready', warnings: qualityWarnings };
 if (unresolvedCount) { quality.level = 'review'; quality.warnings.push(`${unresolvedCount} 处证据未解析；此报告仅用于复核。`); }
@@ -329,25 +358,37 @@ for (const [kind, rows, field] of [['module', modules, 'id'], ['relation', relat
       stage.sources.forEach((source, index) => { source.key = `chain:${row.id}/${stage.id}:${source.sourceId ?? index}`; });
       markUnresolved(stage);
     }
+    if (kind === 'chain') for (const transition of row.transitions) {
+      transition.sources.forEach((source, index) => { source.key = `chain-transition:${row.id}/${transition.id}:${source.sourceId ?? index}`; });
+      markUnresolved(transition);
+      if (transition.reviewRequired) row.reviewRequired = true;
+    }
   }
 }
 for (const view of views) {
   if ((view.relations || []).some(id => relations.some(row => row.id === id && (row.reviewRequired || row.freshness === 'unresolved')))) { view.reviewRequired = true; view.freshness = 'stale'; }
+  if (view.chain) {
+    const chain = chains.find(row => row.id === view.chain);
+    view.diagram = chainDiagram(chain);
+    view.mobileDiagram = chainDiagram(chain, 'TB');
+    if (chain.reviewRequired || chain.stages.some(row => row.reviewRequired)) { view.reviewRequired = true; view.freshness = 'stale'; }
+  }
 }
 const evidenceCount = [
-  ...modules, ...relations, ...views, ...chains, ...chains.flatMap(chain => chain.stages), ...tables, ...routes, ...flags, ...findings, ...coverage
+  ...modules, ...relations, ...views, ...chains, ...chains.flatMap(chain => [...chain.stages, ...chain.transitions]), ...tables, ...routes, ...flags, ...findings, ...coverage
 ].reduce((sum, item) => sum + (item.sources?.length || 0), 0);
 const data = {
   project: { title: project.title, subtitle: project.subtitle || 'REPOSITORY ATLAS', summary: project.summary || '', scope: project.scope, boundary: project.boundary },
   date: new Date().toISOString().slice(0, 10),
   reviewMode, unresolvedCount, review: manifest.review || null,
-  renderer: 'Mermaid 10.9.3', modules, relations, views, chains, findings, coverage, tables, routes, flags, files, repositories, scanGroups, quality,
+  renderer: 'Mermaid 10.9.3', moduleEdges: Object.fromEntries([...moduleRelationEdges(manifest)].map(([id, targets]) => [id, [...targets]])), modules, relations, views, chains, findings, coverage, tables, routes, flags, files, repositories, scanGroups, quality,
   update: manifest.update && typeof manifest.update === 'object' ? {
     mode: manifest.update.mode || 'incremental-candidate',
     generatedAt: manifest.update.generatedAt || null,
     baseSnapshot: manifest.update.baseSnapshot || null,
     deltaPath: manifest.update.deltaPath || null,
     summary: manifest.update.summary || null,
+    impactPaths: manifest.update.impactPaths || {},
     impacted: Array.isArray(manifest.update.impacted) ? manifest.update.impacted : [],
     staleEvidence: Array.isArray(manifest.update.staleEvidence) ? manifest.update.staleEvidence : [],
     unmappedChanges: Array.isArray(manifest.update.unmappedChanges) ? manifest.update.unmappedChanges : [],
@@ -370,6 +411,33 @@ const replacements = {
   '/* INLINE_APP */': safeScript(app),
   DATA_JSON: JSON.stringify(redactValue(data, secrets)).replaceAll('<', '\\u003c').replaceAll('>', '\\u003e').replaceAll('&', '\\u0026')
 };
-const html = template.replace(/\/\* INLINE_(?:STYLE|MERMAID|ICONS|APP) \*\/|DATA_JSON/g, match => replacements[match]);
+let reportTemplate = template;
+let bundleFiles = [];
+if (sourceDirectory) {
+  const sourceFiles = [];
+  for (const path of [...new Set(collectSourceRows(manifest).map(source => source.path))].sort()) {
+    const full = await checkedPath(path);
+    const bytes = await readFile(full);
+    if (hashBytes(bytes) !== (await read(path)).sha256) throw new Error('Source drift while copying the report source bundle');
+    sourceFiles.push({ path, bytes });
+  }
+  const published = await publishFiles(workspace, sourceDirectory, sourceFiles, [...protectedPaths, output]);
+  bundleFiles.push(...published.files);
+  data.sourceBase = relativeUrl(output, published.root) + '/';
+  // relativeUrl already encodes paths; fileUrl in the reader encodes sourceBase.
+  data.sourceBase = decodeURIComponent(data.sourceBase);
+  replacements.DATA_JSON = JSON.stringify(redactValue(data, secrets)).replaceAll('<', '\\u003c').replaceAll('>', '\\u003e').replaceAll('&', '\\u0026');
+}
+if (assetDirectory) {
+  const published = await publishFiles(workspace, assetDirectory, [
+    { path: 'report.css', bytes: Buffer.from(css) }, { path: 'mermaid.js', bytes: Buffer.from(mermaid) },
+    { path: 'icons.js', bytes: Buffer.from(icons) }, { path: 'app.js', bytes: Buffer.from(app) }
+  ], [...protectedPaths, output, ...bundleFiles]);
+  bundleFiles.push(...published.files);
+  const url = path => relativeUrl(output, resolve(published.root, path));
+  reportTemplate = reportTemplate.replace('<style>/* INLINE_STYLE */</style>', `<link rel="stylesheet" href="${url('report.css')}">`);
+  for (const [marker, name] of [['MERMAID', 'mermaid.js'], ['ICONS', 'icons.js'], ['APP', 'app.js']]) reportTemplate = reportTemplate.replace(`<script>/* INLINE_${marker} */</script>`, `<script src="${url(name)}"></script>`);
+}
+const html = reportTemplate.replace(/\/\* INLINE_(?:STYLE|MERMAID|ICONS|APP) \*\/|DATA_JSON/g, match => replacements[match]);
 await atomicWrite(workspace, output, html, { extension: '.html', replace, protectedPaths });
-console.log(JSON.stringify({ output, bytes: Buffer.byteLength(html), ...data.stats, repositories: repositories.map(repo => ({ name: repo.name, commit: repo.commit })) }, null, 2));
+console.log(JSON.stringify({ output, bytes: Buffer.byteLength(html), bundleFiles, mode: assetDirectory ? 'local-assets' : 'standalone', ...data.stats, repositories: repositories.map(repo => ({ name: repo.name, commit: repo.commit })) }, null, 2));

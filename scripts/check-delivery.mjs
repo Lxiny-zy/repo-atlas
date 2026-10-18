@@ -30,6 +30,8 @@ const artifact = await readBound(delivery.artifact, 'artifact');
 const manifest = await readBound(delivery.inputs?.manifest, 'manifest');
 const snapshot = await readBound(delivery.inputs?.snapshot, 'snapshot');
 const review = await readBound(delivery.inputs?.review, 'review');
+const bundles = [];
+for (const [index, entry] of (delivery.bundles || []).entries()) bundles.push(await readBound(entry, `bundle[${index}]`));
 const snapshotData = JSON.parse(await readFile(snapshot.path, 'utf8'));
 if (delivery.source?.workspaceSha256 !== snapshotData.workspaceSha256) fail('workspace hash is not bound to snapshot');
 if (delivery.source?.inventorySha256 !== snapshotData.inventorySha256) fail('inventory hash is not bound to snapshot');
@@ -38,7 +40,7 @@ const result = {
   valid: true,
   purpose: 'repo-atlas-delivery-check',
   delivery: delivery.version || null,
-  checked: [artifact.path, manifest.path, snapshot.path, review.path],
+  checked: [artifact.path, manifest.path, snapshot.path, review.path, ...bundles.map(item => item.path)],
   source: delivery.source,
   artifact: { sha256: artifact.sha256, bytes: artifact.bytes }
 };

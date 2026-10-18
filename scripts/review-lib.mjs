@@ -8,7 +8,10 @@ export function entityRows(manifest) {
   for (const [type, collection, field] of [['module', 'modules', 'id'], ['relation', 'relations', 'id'], ['view', 'views', 'id'], ['chain', 'chains', 'id'], ['finding', 'findings', 'id'], ['coverage', 'coverage', 'id'], ['table', 'tables', 'name'], ['route', 'routes', 'prefix'], ['flag', 'flags', 'name']]) {
     for (const row of manifest[collection] || []) {
       rows.push({ key: `${type}:${row[field]}`, row });
-      if (type === 'chain') for (const stage of row.stages || []) rows.push({ key: `chain-stage:${row.id}/${stage.id}`, row: stage });
+      if (type === 'chain') {
+        for (const stage of row.stages || []) rows.push({ key: `chain-stage:${row.id}/${stage.id}`, row: stage });
+        for (const transition of row.transitions || []) rows.push({ key: `chain-transition:${row.id}/${transition.id}`, row: transition });
+      }
     }
   }
   return rows;

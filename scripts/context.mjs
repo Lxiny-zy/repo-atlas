@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { relative } from 'node:path';
-import { assertOutputInside, checkedPath, collectSourceRows, loadManifest, parseOptions, writeJson, validateDelta, protectedSourcePaths, buildSummaryIndex } from './snapshot-lib.mjs';
+import { assertOutputInside, checkedPath, collectSourceRows, loadManifest, parseOptions, writeJson, validateDelta, protectedSourcePaths, buildSummaryIndex, moduleRelationEdges } from './snapshot-lib.mjs';
 import { planOutput, atomicWrite } from './io-lib.mjs';
 import { sourceReader, hashText, redactionValues, redactionHash, redactText, redactValue } from './evidence-lib.mjs';
 import { baselineTexts, textDiff } from './git-lib.mjs';
@@ -36,6 +36,7 @@ for (const row of bundle.manifest.views || []) addEntity('view', row);
 for (const row of bundle.manifest.chains || []) {
   addEntity('chain', row);
   for (const stage of row.stages || []) addEntity('chain-stage', { ...stage, modules: stage.modules || row.modules || [] }, `${row.id}/${stage.id}`);
+  for (const transition of row.transitions || []) addEntity('chain-transition', { ...transition, modules: row.modules || [] }, `${row.id}/${transition.id}`);
 }
 for (const [type, collection, field] of [['table','tables','name'], ['route','routes','prefix'], ['flag','flags','name'], ['finding','findings','id'], ['coverage','coverage','id']]) {
   for (const row of bundle.manifest[collection] || []) addEntity(type, row, row[field]);
@@ -92,17 +93,19 @@ const impactedModuleIds = new Set();
 for (const key of selectedKeys) {
   const item = entities.get(key);
   if (item?.type === 'module') impactedModuleIds.add(item.id);
-  for (const id of item?.row?.modules || []) impactedModuleIds.add(id);
+  if (!delta.impact) for (const id of item?.row?.modules || []) impactedModuleIds.add(id);
 }
-for (const chain of bundle.manifest.chains || []) if (selectedKeys.has(`chain:${chain.id}`)) for (const id of chain.modules || []) impactedModuleIds.add(id);
-const upstream = modules.filter(row => (row.links || []).some(id => impactedModuleIds.has(id))).map(row => row.id);
-const downstream = [...new Set([...impactedModuleIds].flatMap(id => moduleById.get(id)?.links || []))];
+if (!delta.impact) for (const chain of bundle.manifest.chains || []) if (selectedKeys.has(`chain:${chain.id}`)) for (const id of chain.modules || []) impactedModuleIds.add(id);
+const relationEdges = moduleRelationEdges(bundle.manifest);
+const upstream = modules.filter(row => [...(relationEdges.get(row.id) || [])].some(id => impactedModuleIds.has(id))).map(row => row.id);
+const downstream = [...new Set([...impactedModuleIds].flatMap(id => [...(relationEdges.get(id) || [])]))];
 const relatedChains = (bundle.manifest.chains || []).filter(chain => (chain.modules || []).some(id => impactedModuleIds.has(id))).map(chain => ({ id: chain.id, title: chain.title, modules: chain.modules || [] }));
 const relationships = {
   impactedModules: [...impactedModuleIds].map(id => ({ id, name: moduleById.get(id)?.name || id })),
   upstreamModules: upstream.map(id => ({ id, name: moduleById.get(id)?.name || id })),
   downstreamModules: downstream.map(id => ({ id, name: moduleById.get(id)?.name || id })),
   relatedChains,
+  impactPaths: delta.impact?.paths || {},
   declaredRelations: (bundle.manifest.relations || []).filter(row => impactedModuleIds.has(row.from) || impactedModuleIds.has(row.to)).map(row => ({ id: row.id, from: row.from, to: row.to, kind: row.kind, label: row.label, payload: row.payload || [] }))
 };
 
@@ -113,6 +116,8 @@ const selectedEntities = [...selectedKeys].map(key => {
     summary: row.summary || row.description || '', previousSummary: previousSummaries[key]?.summary ?? null,
     status: row.status || null, modules: row.modules || [], stale: staleEntities.has(key),
     ...(type === 'relation' ? { from: row.from, to: row.to, kind: row.kind, payload: row.payload || [] } : {}),
+    ...(type === 'chain-transition' ? { from: row.from, to: row.to, label: row.label, guard: row.guard || null, effects: row.effects || [], async: row.async ?? null, transaction: row.transaction || null, idempotency: row.idempotency || null, compensation: row.compensation || null } : {}),
+    evidenceBindings: row.evidenceBindings || [],
     ...(type === 'table' && row.fields ? { fields: row.fields } : {}),
     sources: sourceRows.filter(source => entityKey(source.entityType, source.entityId) === key).map(source => source.key)
   };

@@ -13,7 +13,7 @@
   const icons = () => window.lucide.createIcons();
   const byId = id => data.modules.find(module => module.id === id);
   for (const module of data.modules) module.links ||= [];
-  const moduleLinkIds = module => [...new Set(dataFlows.length
+  const moduleLinkIds = module => data.moduleEdges ? data.moduleEdges[module?.id] || [] : [...new Set(dataFlows.length
     ? dataFlows.filter(row => row.from === module?.id).map(row => row.to)
     : [...(module?.links || []), ...data.relations.filter(row => row.kind === 'dependency' && row.from === module?.id).map(row => row.to)])].filter(id => byId(id));
   const byTable = name => data.tables.find(table => table.name === name);
@@ -98,6 +98,7 @@
     for (const row of data[kind]) {
       const view = kind === 'views' ? row.id : kind === 'chains' ? row.readingView : kind === 'relations' ? data.views.find(view => view.relations?.includes(row.id))?.id : kind === 'tables' ? data.views.find(view => view.tables?.includes(row.name))?.id : overviewId;
       for (const source of row.sources || []) if (source.key) evidenceTargets.set(source.key, { source, title: row.title || row.name || row.label, view: view || overviewId, ...(kind === 'chains' ? { chain: row.id } : {}) });
+      if (kind === 'chains') for (const transition of row.transitions || []) for (const source of transition.sources || []) if (source.key) evidenceTargets.set(source.key, { source, title: row.title + ' · ' + transition.label, view: row.readingView || overviewId, chain: row.id });
       if (kind === 'chains') for (const stage of row.stages) for (const source of stage.sources) if (source.key) evidenceTargets.set(source.key, { source, title: row.title + ' · ' + stage.label, view: row.readingView || overviewId, chain: row.id, stage: stage.id });
     }
   }
@@ -232,6 +233,7 @@
     const summary = update.summary || {};
     const stale = update.staleEvidence || [];
     const unmapped = update.unmappedChanges || [];
+    const impactPaths = data.update?.impactPaths || update.impactPaths || {};
     const manifestChanged = Boolean(summary.manifestChanged);
     showDialog('快照后的增量变更', `<p>这是基于上次快照生成的增量候选，不代表所有结论已经重新确认。</p>
       <div class="baseline-row"><strong>变更文件</strong><span>${summary.changedFiles || 0}（新增 ${summary.added || 0} / 修改 ${summary.modified || 0} / 删除 ${summary.deleted || 0}${summary.renamed ? ` / 重命名 ${summary.renamed}` : ''}）</span></div>
@@ -246,6 +248,7 @@
       ${summary.fullReanalysisReasons?.length ? `<div class="stale-note">${summary.fullReanalysisReasons.map(reason => esc(reason)).join('<br>')}</div>` : ''}
       ${stale.length ? `<details open><summary>待复核证据 · ${stale.length} 项</summary><ul>${stale.map(item => `<li>${esc(item.entity)} · ${esc(item.path)} · ${esc(item.reason)}</li>`).join('')}</ul></details>` : '<p>没有检测到失效证据。</p>'}
       ${unmapped.length ? `<details open><summary>待确认归属 · ${unmapped.length} 项</summary><p>这些文件发生了变化，尚未关联到模块或证据，需要确认影响范围。</p><ul>${unmapped.map(item => `<li><code>${esc(item.path)}</code> · ${esc(({ added: '新增', modified: '修改', deleted: '删除', renamed: '重命名' })[item.status] || item.status)}</li>`).join('')}</ul></details>` : ''}
+      ${Object.keys(impactPaths).length ? `<details><summary>影响路径 · ${Object.keys(impactPaths).length} 项</summary><ul>${Object.entries(impactPaths).slice(0, 80).map(([key, path]) => `<li><code>${esc(key)}</code> · ${esc(path.join(' → '))}</li>`).join('')}</ul></details>` : ''}
       <p class="update-note">候选文件：${esc(update.deltaPath || '未记录')}<br>基线：${esc(update.baseSnapshot || '未记录')}</p>`);
   }
 
@@ -278,6 +281,16 @@
       const href = fragment({ view: target?.view || current?.id || overviewId, chain: target?.chain, stage: target?.stage, evidence: source.key });
       return `<span class="source-reference-row">${source.state === 'unresolved' ? `<span class="source-unresolved">${esc(source.path)} · 未解析</span>` : `<a class="source-reference" href="${fileUrl(source.path)}#L${source.line}" target="_blank" rel="noopener">${esc(source.path)}:${sourceLocation(source)} ${icon('external-link')}</a>`}${source.key ? `<a class="evidence-reference" href="${esc(href)}" data-evidence-key="${esc(source.key)}">${source.state === 'unresolved' ? '待复核原因' : '摘录'}</a>` : ''}</span>`;
     }).join('');
+  }
+
+  function bindingMarkup(row, sources = row?.sources || []) {
+    const bindings = row?.evidenceBindings || [];
+    if (!bindings.length) return '';
+    const sourceMap = new Map((sources || []).filter(source => source.id || source.sourceId).map(source => [source.id || source.sourceId, source]));
+    return `<section class="evidence-bindings"><h5>逐项证据</h5>${bindings.map(binding => {
+      const linked = (binding.sources || []).map(id => sourceMap.get(id)).filter(Boolean);
+      return `<div class="evidence-binding"><code>${esc(binding.target)}</code>${linked.length ? sourceReferences(linked) : '<span class="source-unresolved">绑定证据未找到</span>'}</div>`;
+    }).join('')}</section>`;
   }
 
   function readerMarkup(title, label, body, sources) {
@@ -401,7 +414,7 @@
   function relationCards(rows, heading) {
     rows = rows.filter(row => row.kind === 'data_flow');
     if (!rows.length) return '';
-    return `<section class="relation-group"><h5>${esc(heading)} <span>${rows.length}</span></h5>${rows.map(row => `<article class="relation-card relation-data_flow" data-relation-id="${row.id}"><div class="relation-direction"><button class="text-link" data-focus-architecture="${row.from}">${esc(byId(row.from).name)}</button><span aria-hidden="true">→</span><button class="text-link" data-focus-architecture="${row.to}">${esc(byId(row.to).name)}</button>${freshnessBadge(row)}</div><strong>${esc(row.label)}</strong>${row.payload?.length ? `<div class="payload-list">${row.payload.map(value => `<span>${esc(value)}</span>`).join('')}</div>` : ''}<p class="relation-summary">${esc(row.summary)}</p>${row.sources?.length ? `<details><summary>查看源码依据</summary>${sourceReferences(row.sources)}</details>` : ''}</article>`).join('')}</section>`;
+    return `<section class="relation-group"><h5>${esc(heading)} <span>${rows.length}</span></h5>${rows.map(row => `<article class="relation-card relation-data_flow" data-relation-id="${row.id}"><div class="relation-direction"><button class="text-link" data-focus-architecture="${row.from}">${esc(byId(row.from).name)}</button><span aria-hidden="true">→</span><button class="text-link" data-focus-architecture="${row.to}">${esc(byId(row.to).name)}</button>${freshnessBadge(row)}</div><strong>${esc(row.label)}</strong>${row.payload?.length ? `<div class="payload-list">${row.payload.map(value => `<span>${esc(value)}</span>`).join('')}</div>` : ''}<p class="relation-summary">${esc(row.summary)}</p>${bindingMarkup(row)}${row.sources?.length ? `<details><summary>查看源码依据</summary>${sourceReferences(row.sources)}</details>` : ''}</article>`).join('')}</section>`;
   }
 
   function renderArchitectureOverview(view) {
@@ -415,7 +428,7 @@
 
   function dataObjectMarkup(table) {
     const fields = table.fields || [];
-    return `<p class="reader-summary">${esc(table.description)}</p>${fields.length ? `<div class="field-table-wrap"><table class="field-table"><thead><tr><th>字段</th><th>类型</th><th>含义</th></tr></thead><tbody>${fields.map(field => `<tr><td><code>${esc(field.name)}</code>${field.key ? `<small class="field-key">${esc(field.key)}</small>` : ''}</td><td>${esc(field.type)}</td><td>${esc(field.description)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="reader-empty">字段结构尚未整理。</p>'}${fields.some(field => field.references) ? `<section class="relation-group"><h5>字段关联</h5>${fields.filter(field => field.references).map(field => `<div class="field-reference"><code>${esc(field.name)}</code><span>→</span><button class="text-link" data-focus-table="${esc(field.references.table)}">${esc(field.references.table)}.${esc(field.references.field)}</button><small>${field.references.kind === 'foreign_key' ? '数据库外键' : '逻辑关联 · 不代表数据库约束'}</small></div>`).join('')}</section>` : ''}${table.modules?.length ? `<div class="reader-relations"><span>关联模块</span>${table.modules.map(id => `<button class="text-link" data-focus-architecture="${id}">${esc(byId(id).name)}</button>`).join('')}</div>` : ''}`;
+    return `<p class="reader-summary">${esc(table.description)}</p>${bindingMarkup(table)}${fields.length ? `<div class="field-table-wrap"><table class="field-table"><thead><tr><th>字段</th><th>类型</th><th>含义</th></tr></thead><tbody>${fields.map(field => `<tr><td><code>${esc(field.name)}</code>${field.key ? `<small class="field-key">${esc(field.key)}</small>` : ''}</td><td>${esc(field.type)}</td><td>${esc(field.description)}${field.evidenceBindings?.length ? bindingMarkup(field, table.sources) : ''}</td></tr>`).join('')}</tbody></table></div>` : '<p class="reader-empty">字段结构尚未整理。</p>'}${fields.some(field => field.references) ? `<section class="relation-group"><h5>字段关联</h5>${fields.filter(field => field.references).map(field => `<div class="field-reference"><code>${esc(field.name)}</code><span>→</span><button class="text-link" data-focus-table="${esc(field.references.table)}">${esc(field.references.table)}.${esc(field.references.field)}</button><small>${field.references.kind === 'foreign_key' ? '数据库外键' : '逻辑关联 · 不代表数据库约束'}</small></div>`).join('')}</section>` : ''}${table.modules?.length ? `<div class="reader-relations"><span>关联模块</span>${table.modules.map(id => `<button class="text-link" data-focus-architecture="${id}">${esc(byId(id).name)}</button>`).join('')}</div>` : ''}`;
   }
 
   function renderDataOverview(view) {
@@ -526,6 +539,12 @@
     readerMarkup(module.name, module.category, `<div class="status-stack">${freshnessBadge(module)}</div><p class="reader-summary">${esc(module.summary)}</p>${relationCards(incoming, '流入：接收什么数据')}${relationCards(outgoing, '流出：向谁提供数据')}${!incoming.length && !outgoing.length ? '<p class="reader-empty">该模块的数据流向尚未记录。</p>' : ''}${objects.length ? `<section class="relation-group"><h5>关联数据对象</h5>${objects.map(table => `<button class="related-module" data-focus-table="${esc(table.name)}">${icon('database')}${esc(table.title)} ${icon('arrow-up-right')}</button>`).join('')}</section>` : ''}${module.facts.length ? `<details class="reader-facts"><summary>职责与边界</summary><ul>${module.facts.map(fact => `<li>${esc(fact)}</li>`).join('')}</ul></details>` : ''}`, module.sources);
   }
 
+  function transitionMarkup(chain, stageId = null) {
+    const rows = (chain.transitions || []).filter(row => !stageId || row.from === stageId || row.to === stageId);
+    const name = id => chain.stages.find(stage => stage.id === id)?.label || id;
+    return rows.length ? `<section class="relation-group"><h5>继续、分支与恢复</h5>${rows.map(row => `<article class="chain-stage" data-transition="${esc(row.id)}"><strong>${esc(name(row.from))} → ${esc(name(row.to))}</strong><div>${statusBadge(row.status)}${freshnessBadge(row)}${row.async ? '<span class="tag">异步交接</span>' : ''}</div><p>${esc(row.label)}</p>${bindingMarkup(row)}${row.guard ? `<p>条件：${esc(row.guard)}</p>` : ''}${row.effects?.length ? `<p>产生变化：${esc(row.effects.join('；'))}</p>` : ''}${[['transaction', '事务边界'], ['idempotency', '重复处理'], ['compensation', '失败补偿'], ['nextCheck', '还需要确认']].filter(([key]) => row[key]).map(([key, title]) => `<p>${title}：${esc(row[key])}</p>`).join('')}${sourceReferences(row.sources)}</article>`).join('')}</section>` : '';
+  }
+
   function selectStage(chainId, stageId, { updateHash = true, reveal = false } = {}) {
     const chain = viewChains(current).find(item => item.id === chainId);
     const item = chain?.stages.find(item => item.id === stageId);
@@ -540,7 +559,7 @@
     const index = chain.stages.indexOf(item);
     const adjacent = offset => chain.stages[index + offset];
     const navButton = (offset, label) => `<button class="text-link" ${adjacent(offset) ? `data-select-stage="${chainId}" data-stage="${adjacent(offset).id}"` : 'disabled'}>${label}</button>`;
-    readerMarkup(item.label, `${chain.title} · ${index + 1} / ${chain.stages.length}`, `<div class="status-stack">${statusBadge(item.status)}${freshnessBadge(item) || freshnessBadge(chain)}</div><p class="reader-summary">${esc(item.summary)}</p>${item.nextCheck ? `<p class="next-question"><strong>还需要确认</strong>${esc(item.nextCheck)}</p>` : ''}${item.modules.length ? `<div class="reader-relations"><span>参与模块</span>${item.modules.map(id => `<button class="text-link" data-focus-architecture="${id}">${esc(byId(id).name)}</button>`).join('')}</div>` : ''}${relationCards(data.relations.filter(row => item.relations?.includes(row.id)), '本环节的数据传递')}<div class="reader-stage-controls">${navButton(-1, '← 上一环节')}<button class="text-link stage-permalink" data-copy-stage="${chainId}" data-stage="${stageId}" aria-label="复制阶段链接">${icon('link')}</button>${navButton(1, '下一环节 →')}</div>`, item.sources);
+    readerMarkup(item.label, `${chain.title} · ${index + 1} / ${chain.stages.length}`, `<div class="status-stack">${statusBadge(item.status)}${freshnessBadge(item) || freshnessBadge(chain)}</div><p class="reader-summary">${esc(item.summary)}</p>${bindingMarkup(item)}${item.nextCheck ? `<p class="next-question"><strong>还需要确认</strong>${esc(item.nextCheck)}</p>` : ''}${item.modules.length ? `<div class="reader-relations"><span>参与模块</span>${item.modules.map(id => `<button class="text-link" data-focus-architecture="${id}">${esc(byId(id).name)}</button>`).join('')}</div>` : ''}${relationCards(data.relations.filter(row => item.relations?.includes(row.id)), '本环节的数据传递')}${transitionMarkup(chain, stageId)}<div class="reader-stage-controls">${navButton(-1, '← 上一环节')}<button class="text-link stage-permalink" data-copy-stage="${chainId}" data-stage="${stageId}" aria-label="复制阶段链接">${icon('link')}</button>${navButton(1, '下一环节 →')}</div>`, item.sources);
     syncDiagramSelection();
     if (updateHash) updateReadingHash({ view: current.id, chain: chainId, stage: stageId });
     if (reveal) revealReader();
@@ -915,7 +934,8 @@
     return `<div class="module-detail-heading"><h3>${esc(module.name)}</h3><span class="status-stack">${freshnessBadge(module)}</span></div>
       <p class="summary">${esc(module.summary)}</p>
       ${module.staleReason ? `<p class="stale-note">${esc(module.staleReason)}</p>` : ''}
-      ${module.facts.length ? `<h4>你需要了解的事</h4><ul>${module.facts.map(fact => `<li>${esc(fact)}</li>`).join('')}</ul>` : ''}
+      ${module.facts.length ? `<h4>你需要了解的事</h4><ul>${module.facts.map((fact, index) => `<li>${esc(fact)}${(module.evidenceBindings || []).filter(binding => binding.target === `/facts/${index}`).map(binding => bindingMarkup({ evidenceBindings: [binding] }, module.sources)).join('')}</li>`).join('')}</ul>` : ''}
+      ${bindingMarkup(module)}
       ${modulePassportMarkup(module, options.focusReach)}
       <details class="technical-evidence" data-technical-evidence><summary>查看源码依据 · ${module.sources.length} 处</summary>
       <p>需要核对实现时，从下面的文件位置继续查看。</p>
@@ -929,7 +949,7 @@
   function findingMarkup(finding) {
     const related = finding.modules.map(id => byId(id)).filter(Boolean);
     return `<div class="detail-status">${statusBadge(finding.kind, kindLabels[finding.kind])}${statusBadge(finding.status)}${freshnessBadge(finding)}</div>
-      <p>${esc(finding.summary)}</p>
+      <p>${esc(finding.summary)}</p>${bindingMarkup(finding)}
       ${finding.staleReason ? `<p class="stale-note">${esc(finding.staleReason)}</p>` : ''}
       ${finding.impact ? `<h4>这意味着什么</h4><p>${esc(finding.impact)}</p>` : ''}
       ${finding.nextCheck ? `<h4>接下来确认什么</h4><p>${esc(finding.nextCheck)}</p>` : ''}
@@ -975,9 +995,9 @@
   function chainMarkup(chain) {
     const views = chain.views.map(id => data.views.find(view => view.id === id)).filter(Boolean);
     return `<div class="detail-status">${statusBadge(chain.kind, chainKindLabel(chain))}${chainBadges(chain)}</div><p class="chain-coverage-summary">${esc(chainProgressLabel(chain))}</p>
-      <p>${esc(chain.summary)}</p><div class="chain-route"><strong>从哪里开始</strong><span>${esc(chain.trigger)}</span><b>→</b><strong>最后得到什么</strong><span>${esc(chain.outcome)}</span></div>
+      <p>${esc(chain.summary)}</p>${bindingMarkup(chain)}<div class="chain-route"><strong>从哪里开始</strong><span>${esc(chain.trigger)}</span><b>→</b><strong>最后得到什么</strong><span>${esc(chain.outcome)}</span></div>
       <h4>逐步了解处理过程</h4><div class="chain-stage-list">${chain.stages.map(stage => `<div class="chain-stage"><div><strong>${esc(stage.label)}</strong>${statusBadge(stage.status)}${freshnessBadge(stage)}<button class="text-link stage-permalink" data-copy-stage="${chain.id}" data-stage="${stage.id}" aria-label="复制阶段链接">${icon('link')}</button></div><p>${esc(stage.summary)}</p>${stage.nextCheck ? `<small class="next-question"><strong>还需要确认</strong>${esc(stage.nextCheck)}</small>` : ''}${stage.sources?.length ? `<div class="chain-stage-sources">${stage.sources.map((source, index) => `<button class="evidence-link" data-chain-stage-source="${chain.id}" data-stage="${stage.id}" data-index="${index}">${icon('file-code-2')}<span>${esc(source.path)}<span class="file-meta">${sourceLocation(source)}</span></span></button>`).join('')}</div>` : ''}</div>`).join('')}</div>
-      ${views.length ? `<h4>关联视图</h4><div class="related-links">${views.map(view => `<button class="text-link" data-chain-view="${view.id}">${icon(view.icon)}${esc(view.title)}</button>`).join('')}</div>` : ''}
+      ${transitionMarkup(chain)}${views.length ? `<h4>关联视图</h4><div class="related-links">${views.map(view => `<button class="text-link" data-chain-view="${view.id}">${icon(view.icon)}${esc(view.title)}</button>`).join('')}</div>` : ''}
       <h4>链路源码依据 · ${chain.sources.length} 处</h4>${chain.sources.map((source, index) => `<button class="evidence-link" data-chain-source="${chain.id}" data-index="${index}">${icon('file-code-2')}<span>${esc(source.path)}<span class="file-meta">${sourceLocation(source)}</span></span></button>`).join('')}`;
   }
 

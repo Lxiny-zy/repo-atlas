@@ -26,13 +26,15 @@ description: 从真实仓库生成以项目架构、业务流程、数据流向�
 5. 区分当前值、确认计划、执行结果、历史快照、审计记录和兼容路径。对持久化对象确认关联键、基数、唯一性、写入者和消费者。字段名含 `fk` 不代表物理外键，表名被引用不代表已投产或存在业务写入。
 6. 区分已确认事实、基于证据的推断和未确认项。对会影响接手、变更或运行判断的结论，使用 `findings` 记录类型、可信状态、影响和最短验证路径；不要把普通代码观察包装成风险清单。
 
+长期维护的清单为每条证据设置稳定 `sources[].id`；重复锚点可补充 `before`、`after`，已核对摘录可用 `excerptSha256` 固定。实体中的事实、payload、条件和数据字段可用 `evidenceBindings` 绑定具体证据，避免用一个文件片段支撑整组结论。先运行 `doctor.mjs` 查看维护提醒，再按需要运行 `migrate.mjs` 自动补齐稳定 ID。
+
 详细的覆盖取舍和证据门槛见 [analysis-guide.md](docs/analysis-guide.md)。分析跨越多个模块、包含数据写入或存在明显未知时，必须读取该文件。
 
 ## 选择视图
 
 先给出能说明系统组成和边界的架构总览，再展开关键业务流程、需要深入的数据流、数据结构和运行边界。模块之间只展示数据流向，不提供“依赖关系 / 数据流向 / 全部关系”切换，也不另画内容重复的依赖图。使用 `relations` 的 `data_flow` 显式记录提供方、接收方、传递内容及触发条件；请求与返回分别标注。旧清单的 `dependency` 可作为结构化依据保留，不转换成数据流；没有数据流证据时说明尚未记录，不补造连线。
 
-`views[].relations` 引用关系 ID；省略 `diagram` 时，生成器只按已声明的 `data_flow` 生成数据流图。有分层或特殊布局需求时保留手写 Mermaid，模块节点 ID 对应 `modules[].id`。总览已能解释的数据流不再建立相同的独立视图。每条关键链路在 `chains` 中登记业务阶段，流程图通过 `bindings` 绑定节点；需要显示阶段数据流时显式填写阶段的 `relations`。
+`views[].relations` 引用关系 ID；省略 `diagram` 时，生成器只按已声明的 `data_flow` 生成数据流图。有分层或特殊布局需求时保留手写 Mermaid，模块节点 ID 对应 `modules[].id`。总览已能解释的数据流不再建立相同的独立视图。每条关键链路在 `chains` 中登记业务阶段，流程图通过 `bindings` 绑定节点；需要显示阶段数据流时显式填写阶段的 `relations`。需要核对真实分支、异步交接、事务边界、幂等、补偿和状态结果时使用 `chains[].transitions`；需要自动生成流程图时创建带 `chain` 的 `flow` 视图，不同时手写 diagram。
 
 自动生成的数据流图支持沿连线移动的标记、播放/暂停与模块聚焦。动画只演示清单中声明的数据方向，不代表实时流量或执行先后。尊重系统减少动态效果的偏好，导出和打印使用静态图。
 
@@ -58,6 +60,12 @@ description: 从真实仓库生成以项目架构、业务流程、数据流向�
 
 ```text
 node <skill-dir>/scripts/build.mjs <project-docs>/atlas.json
+```
+
+报告较大或需要随报告携带源码副本时，可使用内容寻址的本地资源目录；默认单文件交付不受影响：
+
+```text
+node <skill-dir>/scripts/build.mjs <project-docs>/atlas.json --assets-dir .repo-atlas/assets --source-bundle .repo-atlas/sources
 ```
 
 要求 Node.js 18+。`workspace` 相对清单文件定位，`output` 必须位于工作区内，多仓路径均相对 `workspace`。无 Git 目录可省略 `repositories`。生成的 HTML 内嵌 Mermaid 10.9.3、Lucide 0.468.0、样式、图表和证据，默认离线打开，不启动项目应用，也不安装其依赖。
@@ -90,7 +98,7 @@ node <skill-dir>/scripts/context.mjs <project-docs>/atlas.json --changed-only
 
 缺失或歧义证据不能接受为正式交付。排查时使用 `build.mjs <atlas.next.json> --review`，报告显式显示未解析原因，降低对应临时覆盖/可信度状态，不冒用旧摘录。视图、阶段及证据可以复制 # 定位链接；移动离线报告时保留片段。
 
-`context.mjs` 生成 `.repo-atlas/context.json`，默认只携带 delta 中的变更文件、Git hunk、受影响链路/阶段、旧新证据摘录和一跳上下游关系；快照内的轻量摘要索引提供变更前摘要，证据摘录继续遵守 `redact`。使用 `--stale-only` 只处理失效证据，使用 `--previous-manifest` 显式覆盖旧清单摘要。该文件是模型复核输入，不替代完整 `atlas.json` 或快照。
+`context.mjs` 生成 `.repo-atlas/context.json`，默认只携带 delta 中的变更文件、Git hunk、受影响链路/阶段、旧新证据摘录和一跳上下游关系；快照内的轻量摘要索引提供变更前摘要，证据摘录继续遵守 `redact`。影响路径写入 `delta.impact.paths`，上下文和报告使用同一套数据流/依赖回退规则。使用 `--stale-only` 只处理失效证据，使用 `--previous-manifest` 显式覆盖旧清单摘要。该文件是模型复核输入，不替代完整 `atlas.json` 或快照。
 
 默认影响规则：普通实现变更影响所在模块和直接证据；路由、数据模型、锁文件、部署或公共配置变化扩大到相关入口、数据关系和运行视图；至少 10 个基线文件时变更超过约 20%、变更达到 20 个文件，或命中公共基础设施时建议全量重分析。`.repo-atlas` 快照目录默认不进入文件索引，避免工具产物污染基线。快照和差异文件只保存在本地，不上传仓库。
 
@@ -110,4 +118,4 @@ node <skill-dir>/scripts/verify.mjs <report.html> --playwright <installed-playwr
 
 可用 `--browser chromium|firefox|webkit` 指定验证引擎；分别报告实际运行结果。WebKit 会在阻断 HTTP 请求的前提下先加载本地文件，再启用离线模拟，此差异会记入结果。不要将引擎验证描述为真实 Safari/iPhone 测试。
 
-交付可直接打开的 HTML、可维护的 `atlas.json`，以及需要持续维护时的 `.repo-atlas/snapshot.json` 与 `delta.json`；说明覆盖范围、实际验证、最重要的已确认结论、未确认项和增量复核范围。不要为套模板新增迁移方案、专项风险审计或规划需求。
+交付可直接打开的 HTML、可维护的 `atlas.json`，以及需要持续维护时的 `.repo-atlas/snapshot.json` 与 `delta.json`；说明覆盖范围、实际验证、最重要的已确认结论、未确认项和增量复核范围。正式接受外置资源时，把 `--assets-dir` 与 `--source-bundle` 传给 `accept.mjs`，让资源和源码副本进入同一 accepted version 并由 delivery 检查。不要为套模板新增迁移方案、专项风险审计或规划需求。

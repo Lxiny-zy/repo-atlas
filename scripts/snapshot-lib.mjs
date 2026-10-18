@@ -20,7 +20,7 @@ export function analysisManifestHash(manifest) {
   delete normalized.output;
   for (const collection of runtimeCollections) {
     for (const row of normalized[collection] || []) {
-      for (const item of [row, ...(row.stages || [])]) for (const field of runtimeFields) delete item[field];
+      for (const item of [row, ...(row.stages || []), ...(row.transitions || [])]) for (const field of runtimeFields) delete item[field];
     }
   }
   return hashText(JSON.stringify(normalized));
@@ -73,6 +73,7 @@ function sourceRows(manifest) {
   (manifest.chains || []).forEach(row => {
     add('chain', row.id, row.sources);
     (row.stages || []).forEach(stage => add('chain-stage', `${row.id}/${stage.id}`, stage.sources, 'chain'));
+    (row.transitions || []).forEach(transition => add('chain-transition', `${row.id}/${transition.id}`, transition.sources));
   });
   (manifest.tables || []).forEach(row => add('table', row.name, row.sources));
   (manifest.routes || []).forEach(row => add('route', row.prefix, row.sources));
@@ -93,6 +94,8 @@ export function buildSummaryIndex(manifest) {
       summary: row.summary || row.description || '',
       status: row.status || null,
       modules: type === 'relation' ? [row.from, row.to] : row.modules || [],
+      ...(row.evidenceBindings ? { evidenceBindings: row.evidenceBindings } : {}),
+      ...(type === 'chain-transition' ? { from: row.from, to: row.to, label: row.label, guard: row.guard || null, effects: row.effects || [], async: row.async ?? null, transaction: row.transaction || null, idempotency: row.idempotency || null, compensation: row.compensation || null } : {}),
       ...(type === 'relation' ? { from: row.from, to: row.to, kind: row.kind, payload: row.payload || [] } : {})
     };
   };
@@ -101,7 +104,12 @@ export function buildSummaryIndex(manifest) {
   for (const row of manifest.views || []) add('view', row.id, row);
   for (const row of manifest.chains || []) {
     add('chain', row.id, row);
-    for (const stage of row.stages || []) add('chain-stage', `${row.id}/${stage.id}`, stage);
+    for (const stage of row.stages || []) add('chain-stage', `${row.id}/${stage.id}`, { ...stage, modules: stage.modules || row.modules || [] });
+    for (const transition of row.transitions || []) {
+      const endpoints = (row.stages || []).filter(stage => [transition.from, transition.to].includes(stage.id));
+      const modules = [...new Set(endpoints.flatMap(stage => stage.modules || row.modules || []))];
+      add('chain-transition', `${row.id}/${transition.id}`, { ...transition, modules });
+    }
   }
   for (const [type, rows, key] of [
     ['table', manifest.tables, 'name'],
@@ -112,6 +120,79 @@ export function buildSummaryIndex(manifest) {
   ]) for (const row of rows || []) add(type, row[key], row);
   return summaries;
 }
+
+// Keep incremental impact traversal and the browser's authored navigation on
+// the same relationship semantics. When a manifest declares data delivery,
+// those directed edges are authoritative; otherwise retain the legacy module
+// links and dependency relations as the fallback graph.
+export function moduleRelationEdges(manifest) {
+  const edges = new Map((manifest.modules || []).map(module => [module.id, new Set()]));
+  const add = (from, to) => {
+    if (edges.has(from) && edges.has(to) && from !== to) edges.get(from).add(to);
+  };
+  const relations = manifest.relations || [];
+  const flows = relations.filter(row => row.kind === 'data_flow');
+  if (flows.length) {
+    for (const row of flows) add(row.from, row.to);
+  } else {
+    for (const module of manifest.modules || []) for (const target of module.links || []) add(module.id, target);
+    for (const row of relations.filter(item => item.kind === 'dependency')) add(row.from, row.to);
+  }
+  return edges;
+}
+
+// Expand one module hop, then include consumers of those entities. Membership
+// in an overview or chain is never a new traversal root: large overview views
+// must not turn a local implementation change into an entire-workspace review.
+export function analyzeImpact(manifest, seeds) {
+  const paths = new Map([...new Set(seeds)].sort().map(key => [key, [key]]));
+  const add = (key, via) => {
+    if (!paths.has(key) && paths.has(via)) paths.set(key, [...paths.get(via), key]);
+  };
+  const summaries = buildSummaryIndex(manifest);
+  const detailedSeeds = [...paths.keys()].filter(key => !key.startsWith('view:') && !key.startsWith('chain:'));
+  for (const key of detailedSeeds.length ? detailedSeeds : [...paths.keys()]) {
+    for (const module of summaries[key]?.modules || []) add(`module:${module}`, key);
+  }
+  const rootModules = [...paths.keys()].filter(key => key.startsWith('module:'));
+  const edges = moduleRelationEdges(manifest);
+  for (const root of rootModules) {
+    const id = root.slice(7);
+    for (const target of edges.get(id) || []) add(`module:${target}`, root);
+    for (const [source, targets] of edges) if (targets.has(id)) add(`module:${source}`, root);
+  }
+  const moduleIds = new Set([...paths.keys()].filter(key => key.startsWith('module:')).map(key => key.slice(7)));
+  for (const relation of manifest.relations || []) {
+    const via = [relation.from, relation.to].find(id => moduleIds.has(id));
+    if (via) add(`relation:${relation.id}`, `module:${via}`);
+  }
+  for (const [key, summary] of Object.entries(summaries)) {
+    if (key.startsWith('module:')) continue;
+    const via = summary.modules.find(id => moduleIds.has(id));
+    if (via) add(key, `module:${via}`);
+  }
+  const originalTables = [...paths.keys()].filter(key => key.startsWith('table:'));
+  for (const table of manifest.tables || []) for (const field of table.fields || []) {
+    if (field.references && originalTables.includes(`table:${field.references.table}`)) add(`table:${table.name}`, `table:${field.references.table}`);
+    if (field.references && originalTables.includes(`table:${table.name}`)) add(`table:${field.references.table}`, `table:${table.name}`);
+  }
+  for (const chain of manifest.chains || []) {
+    for (const stage of chain.stages || []) {
+      const stageKey = `chain-stage:${chain.id}/${stage.id}`;
+      for (const id of stage.relations || []) if (paths.has(`relation:${id}`)) add(stageKey, `relation:${id}`);
+      for (const transition of chain.transitions || []) if ([transition.from, transition.to].includes(stage.id) && paths.has(`chain-transition:${chain.id}/${transition.id}`)) add(stageKey, `chain-transition:${chain.id}/${transition.id}`);
+      if (paths.has(stageKey)) add(`chain:${chain.id}`, stageKey);
+    }
+    for (const view of chain.views || []) if (paths.has(`chain:${chain.id}`)) add(`view:${view}`, `chain:${chain.id}`);
+  }
+  for (const view of manifest.views || []) {
+    for (const relation of view.relations || []) if (paths.has(`relation:${relation}`)) add(`view:${view.id}`, `relation:${relation}`);
+    for (const table of view.tables || []) if (paths.has(`table:${table}`)) add(`view:${view.id}`, `table:${table}`);
+  }
+  return { impacted: [...paths.keys()].sort(), paths: Object.fromEntries([...paths.entries()].sort(([a], [b]) => a.localeCompare(b))) };
+}
+
+export const expandImpactedEntities = (manifest, seeds) => analyzeImpact(manifest, seeds).impacted;
 
 async function walkFiles(workspace, group, files, seen, reads, allowMissingSources = false) {
   const extensions = new Set((group.extensions || []).map(value => value.toLowerCase()));
@@ -130,7 +211,7 @@ async function walkFiles(workspace, group, files, seen, reads, allowMissingSourc
     const info = await reads.stat(canonical);
     if (info.isDirectory()) {
       for (const entry of await reads.directory(canonical)) {
-        if (excludes.has(entry.name) || entry.isSymbolicLink()) continue;
+        if (excludes.has(entry.name) || /\.verification$/.test(entry.name) || entry.isSymbolicLink()) continue;
         await visit(slash(relative(workspace, resolve(canonical, entry.name))));
       }
       return;
@@ -220,7 +301,7 @@ export async function buildEvidenceInventory({ manifest, workspace, files, allow
     }
     evidence[source.key] = {
       key: source.key, entityType: source.entityType, entityId: source.entityId, path,
-      match: redactText(source.match, secrets), definitionSha256: hashText(JSON.stringify([path, source.match, source.occurrence, source.length])),
+      match: redactText(source.match, secrets), definitionSha256: hashText(JSON.stringify([path, source.match, source.occurrence, source.length, ...(source.before || source.after || source.excerptSha256 ? [source.before || null, source.after || null, source.excerptSha256 || null] : [])])),
       occurrence: source.occurrence, length: source.length, redactSha256: redactionHash(source.redact),
       line: result.line, state: result.state, resolved: result.resolved,
       fileSha256: file?.sha256 || null, excerptSha256: result.excerptSha256,
@@ -233,6 +314,7 @@ export async function buildEvidenceInventory({ manifest, workspace, files, allow
       for (const view of manifest.views || []) if (view[field]?.includes(source.entityId)) impactIndex[path].push(`view:${view.id}`);
     }
     if (source.entityType === 'chain-stage') impactIndex[path].push(`chain:${source.entityId.split('/')[0]}`);
+    if (source.entityType === 'chain-transition') impactIndex[path].push(`chain:${source.entityId.split('/')[0]}`);
   }
   // Optional ownership includes files that have no directly cited excerpt.
   for (const module of manifest.modules || []) {

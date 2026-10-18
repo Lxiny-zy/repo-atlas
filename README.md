@@ -65,9 +65,13 @@ node /path/to/repo-atlas/scripts/validate.mjs docs/architecture/atlas.json
 node /path/to/repo-atlas/scripts/build.mjs docs/architecture/atlas.json
 ```
 
+已有项目也可以先用 `node scripts/init.mjs <workspace> --source <entry-file>` 生成可编辑起点，再运行 `node scripts/doctor.mjs docs/architecture/atlas.json --json` 查看稳定证据 ID、具体证据绑定和流程转移提醒。迁移旧清单时使用 `node scripts/migrate.mjs atlas.json --output atlas.migrated.json --pin-evidence`；该命令不会覆盖输入。
+
 例如清单位于 `your-project/docs/architecture/atlas.json`，可以设置 `workspace: "../.."`、`output: "docs/architecture/report.html"`。在 Windows 上将命令中的工具路径替换成实际路径，含空格时加引号。
 
 清单可以通过 `$schema` 指向本地 [atlas.schema.json](schemas/atlas.schema.json)。CLI 始终使用随工具分发的规则，不访问该地址。
+
+大型报告可使用 `build.mjs --assets-dir .repo-atlas/assets --source-bundle .repo-atlas/sources` 发布内容寻址的本地资源和源码副本；默认构建仍输出单文件离线 HTML。
 
 ### 作为 Agent 技能
 

@@ -17,6 +17,9 @@ export function manifestRows(manifest) {
     if (collection === 'chains') list(row.stages).forEach((stage, i) => {
       if (isObject(stage)) rows.push({ row: stage, path: `${path}/stages/${i}`, collection: 'stages' });
     });
+    if (collection === 'chains') list(row.transitions).forEach((transition, i) => {
+      if (isObject(transition)) rows.push({ row: transition, path: `${path}/transitions/${i}`, collection: 'transitions' });
+    });
   });
   return rows;
 }
@@ -106,6 +109,12 @@ export function validateManifest(manifest, { sanitize = true } = {}) {
     if (collection === 'tables') {
       unique(row.fields, 'name', `${path}/fields`);
       list(row.fields).forEach((field, index) => {
+        if (Array.isArray(field?.evidenceBindings)) {
+          const sourceIds = new Set(list(row.sources).map(source => source?.id).filter(Boolean));
+          field.evidenceBindings.forEach((binding, bindingIndex) => list(binding?.sources).forEach((id, sourceIndex) => {
+            if (!sourceIds.has(id)) add('reference.unknown', `${path}/fields/${index}/evidenceBindings/${bindingIndex}/sources/${sourceIndex}`, '字段证据绑定引用的 source.id 不存在。');
+          }));
+        }
         if (!isObject(field?.references)) return;
         const target = tables.get(field.references.table);
         if (!target) add('reference.unknown', `${path}/fields/${index}/references/table`, '字段关联的数据对象不存在。');
@@ -113,9 +122,45 @@ export function validateManifest(manifest, { sanitize = true } = {}) {
       });
     }
     if (collection === 'chains') { references(row.views, views, `${path}/views`); unique(row.stages, 'id', `${path}/stages`); }
+    if (collection === 'chains') {
+      const stageIds = new Set(list(row.stages).map(stage => stage?.id).filter(Boolean));
+      unique(row.transitions, 'id', `${path}/transitions`);
+      list(row.transitions).forEach((transition, index) => {
+        if (isObject(transition)) {
+          if (!stageIds.has(transition.from)) add('reference.unknown', `${path}/transitions/${index}/from`, '转移的起点阶段不存在。');
+          if (!stageIds.has(transition.to)) add('reference.unknown', `${path}/transitions/${index}/to`, '转移的终点阶段不存在。');
+        }
+      });
+    }
+    if (Array.isArray(row.evidenceBindings)) {
+      const sourceIds = new Set(list(row.sources).map(source => source?.id).filter(Boolean));
+      row.evidenceBindings.forEach((binding, index) => list(binding?.sources).forEach((id, sourceIndex) => {
+        if (!sourceIds.has(id)) add('reference.unknown', `${path}/evidenceBindings/${index}/sources/${sourceIndex}`, '证据绑定引用的 source.id 不存在。');
+      }));
+      unique(row.evidenceBindings, 'target', `${path}/evidenceBindings`);
+      row.evidenceBindings.forEach((binding, index) => {
+        if (typeof binding?.target !== 'string') return;
+        let target = row;
+        for (const token of binding.target.slice(1).split('/')) {
+          const key = token.replace(/~1/g, '/').replace(/~0/g, '~');
+          target = target != null && Object.hasOwn(Object(target), key) ? target[key] : undefined;
+        }
+        if (target === undefined || typeof target === 'object') add('reference.target', `${path}/evidenceBindings/${index}/target`, '证据绑定必须定位到当前实体的已有标量字段。');
+      });
+    }
     unique(row.sources, 'id', `${path}/sources`);
   }
   list(manifest.views).forEach((view, viewIndex) => {
+    if (typeof view?.chain === 'string') {
+      const chain = list(manifest.chains).find(row => row?.id === view.chain);
+      if (!chain) add('reference.unknown', `/views/${viewIndex}/chain`, '自动流程图引用的链路不存在。');
+      else {
+        if (!list(chain.transitions).length) add('reference.transitions', `/views/${viewIndex}/chain`, '自动流程图需要显式 transitions。');
+        if (!list(chain.views).includes(view.id)) add('reference.unlinked', `/views/${viewIndex}/chain`, '链路必须关联该视图。');
+      }
+      if (view.diagram || view.relations?.length || view.bindings?.length || view.mobileDiagram) add('reference.conflict', `/views/${viewIndex}/chain`, 'chain 自动图不能同时定义 diagram、relations、bindings 或 mobileDiagram。');
+      if (view.kind && view.kind !== 'flow') add('reference.diagramKind', `/views/${viewIndex}/kind`, 'chain 自动图使用 flow 类型。');
+    }
     const path = `/views/${viewIndex}/bindings`;
     unique(view?.bindings, 'node', path);
     list(view?.bindings).forEach((binding, index) => {

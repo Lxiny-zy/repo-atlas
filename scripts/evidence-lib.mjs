@@ -13,6 +13,8 @@ export async function hashFile(path) {
 export function normalizeSource(source) {
   if (!source || typeof source !== 'object' || Array.isArray(source)) throw new Error('source must be an object');
   for (const key of ['path', 'match']) if (typeof source[key] !== 'string' || !source[key].trim()) throw new Error(`source.${key} must be a nonempty string`);
+  for (const key of ['before', 'after']) if (source[key] != null && (typeof source[key] !== 'string' || !source[key].trim())) throw new Error(`source.${key} must be a nonempty string when provided`);
+  if (source.excerptSha256 != null && (typeof source.excerptSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(source.excerptSha256))) throw new Error('Invalid source.excerptSha256');
   if (source.id != null && (typeof source.id !== 'string' || !/^[a-z][a-z0-9_-]{0,63}$/.test(source.id))) throw new Error('Invalid source.id');
   const length = source.length ?? 8;
   if (!Number.isInteger(length) || length < 1 || length > 60) throw new Error('Evidence length must be 1..60 lines');
@@ -44,12 +46,17 @@ export function resolveEvidence(document, spec) {
     document.lines.forEach((line, index) => { if (line.includes(source.match)) found.push(index); });
     document.matches.set(source.match, found);
   }
-  const matches = document.matches.get(source.match);
-  const state = !matches.length ? 'missing' : matches.length > 1 && source.occurrence == null ? 'ambiguous' : matches[(source.occurrence ?? 1) - 1] == null ? 'invalid' : 'resolved';
-  const reasons = { missing: 'Missing evidence anchor', ambiguous: 'Ambiguous evidence anchor; specify occurrence or use a unique anchor', invalid: 'Invalid evidence occurrence' };
-  const start = state === 'resolved' ? matches[(source.occurrence ?? 1) - 1] : null;
+  const candidates = document.matches.get(source.match).filter(index =>
+    (!source.before || (index > 0 && document.lines[index - 1].includes(source.before))) &&
+    (!source.after || (index + 1 < document.lines.length && document.lines[index + 1].includes(source.after)))
+  );
+  const state = !candidates.length ? 'missing' : candidates.length > 1 && source.occurrence == null ? 'ambiguous' : candidates[(source.occurrence ?? 1) - 1] == null ? 'invalid' : 'resolved';
+  const reasons = { missing: 'Missing evidence anchor or surrounding context', ambiguous: 'Ambiguous evidence anchor; specify occurrence or use a unique source phrase', invalid: 'Invalid evidence occurrence' };
+  const start = state === 'resolved' ? candidates[(source.occurrence ?? 1) - 1] : null;
   const raw = start == null ? null : document.lines.slice(start, start + source.length).join('\n');
-  return { state, resolved: state === 'resolved', matches: matches.length, line: start == null ? null : start + 1, text: raw == null ? null : redactText(raw, source.redact), excerptSha256: raw == null ? null : hashText(raw), reason: reasons[state] || null };
+  const excerptSha256 = raw == null ? null : hashText(raw);
+  if (state === 'resolved' && source.excerptSha256 && source.excerptSha256 !== excerptSha256) return { state: 'changed', resolved: false, matches: candidates.length, line: start + 1, text: null, excerptSha256, reason: 'Evidence excerpt hash changed' };
+  return { state, resolved: state === 'resolved', matches: candidates.length, line: start == null ? null : start + 1, text: raw == null ? null : redactText(raw, source.redact), excerptSha256, reason: reasons[state] || null };
 }
 
 // Cache in-flight reads and parsed lines once per evidence file.
